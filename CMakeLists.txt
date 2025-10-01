@@ -46,9 +46,9 @@ else()
 endif()
 
 idf_component_register(
-    SRCS dummy.c
+    SRCS "dummy.c"
     INCLUDE_DIRS "${TVG_INC_DIR}"
-    PRIV_REQUIRES pthread)
+    PRIV_REQUIRES pthread heap esp_common)
 
 
 # Convert argument strings to lists, for easier processing
@@ -59,9 +59,6 @@ set(compiler_args ${CMAKE_CXX_FLAGS})
 separate_arguments(compiler_args)
 list(FILTER compiler_args EXCLUDE REGEX "^$")
 
-message(STATUS "CMAKE_EXE_LINKER_FLAGS: ${linker_args}")
-message(STATUS "CMAKE_CXX_FLAGS: ${compiler_args}")
-
 # Add pthread library path to the linker flags if threads are enabled
 if(TVG_THREADS STREQUAL "true")
     idf_component_get_property(pthread_lib "pthread" COMPONENT_LIB GENERATOR_EXPRESSION)
@@ -69,6 +66,36 @@ if(TVG_THREADS STREQUAL "true")
     list(APPEND linker_args "-L${pthread_lib_path_expr}")
     set(TVG_REQUIRES pthread)
 endif()
+
+# Add heap component for custom allocator
+idf_component_get_property(heap_lib "heap" COMPONENT_LIB GENERATOR_EXPRESSION)
+set(heap_lib_path_expr "$<TARGET_FILE_DIR:${heap_lib}>")
+list(APPEND linker_args "-L${heap_lib_path_expr}")
+
+idf_component_get_property(heap_dir "heap" COMPONENT_DIR)
+idf_component_get_property(heap_includes "heap" INCLUDE_DIRS)
+foreach(dir ${heap_includes})
+    list(APPEND compiler_args "-I${heap_dir}/${dir}")
+endforeach()
+
+# for esp_err.h etc.
+idf_component_get_property(esp_common_lib "esp_common" COMPONENT_LIB GENERATOR_EXPRESSION)
+set(esp_common_lib_path_expr "$<TARGET_FILE_DIR:${esp_common_lib}>")
+list(APPEND linker_args "-L${esp_common_lib_path_expr}")
+
+idf_component_get_property(esp_common_dir "esp_common" COMPONENT_DIR)
+idf_component_get_property(esp_common_includes "esp_common" INCLUDE_DIRS)
+foreach(dir ${esp_common_includes})
+    list(APPEND compiler_args "-I${esp_common_dir}/${dir}")
+endforeach()
+
+# Add include directory for sdkconfig.h
+list(APPEND compiler_args "-I${CMAKE_BINARY_DIR}/config")
+list(APPEND TVG_REQUIRES heap)
+
+
+message(STATUS "ThorVG: CMAKE_EXE_LINKER_FLAGS: ${linker_args}")
+message(STATUS "ThorVG: CMAKE_CXX_FLAGS: ${compiler_args}")
 
 # Convert the list of arguments (arg;arg;arg) to a string "'arg', 'arg', 'arg'"
 list(JOIN compiler_args "', '" MESON_CXX_FLAGS)
@@ -100,6 +127,7 @@ ExternalProject_Add(${TVG_LIB}_target
     -Dthreads=${TVG_THREADS}
     -Dlog=${TVG_LOG} # allow log output
     -Dloaders=${TVG_LOADERS_OPTION}   # Pass the loaders option to Meson
+    -Dcustom_allocator_header=${CMAKE_CURRENT_SOURCE_DIR}/psram_allocator.h
     BUILD_COMMAND ninja -C ${TVG_BUILD_DIR}
     INSTALL_COMMAND ""
     BUILD_BYPRODUCTS ${TVG_BUILD_DIR}/src/${TVG_LIB}.a
@@ -111,5 +139,8 @@ add_dependencies(${TVG_LIB} ${TVG_LIB}_target)
 if(TVG_THREADS STREQUAL "true")
     add_dependencies(${TVG_LIB}_target idf::pthread)
 endif()
+
+add_dependencies(${TVG_LIB}_target idf::heap)
+add_dependencies(${TVG_LIB}_target idf::esp_common)
 
 target_link_libraries(${COMPONENT_LIB} INTERFACE ${TVG_LIB})
