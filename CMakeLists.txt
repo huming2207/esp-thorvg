@@ -1,6 +1,5 @@
 # Set a name for libthorvg library
 set(TVG_LIB libthorvg)
-set(TVG_INC_DIR thorvg/src/bindings/capi)
 set(TVG_SUBDIR "${CMAKE_CURRENT_SOURCE_DIR}/thorvg")
 set(TVG_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/thorvg_build")
 set(TVG_CROSS_CFG "${CMAKE_CURRENT_BINARY_DIR}/thorvg_build/cross_file.txt")
@@ -47,8 +46,8 @@ endif()
 
 idf_component_register(
     SRCS "dummy.c"
-    INCLUDE_DIRS "${TVG_INC_DIR}"
-    PRIV_REQUIRES pthread heap esp_common)
+    INCLUDE_DIRS "thorvg/src/bindings/capi" "thorvg/inc"
+    PRIV_REQUIRES pthread)
 
 
 # Convert argument strings to lists, for easier processing
@@ -67,27 +66,8 @@ if(TVG_THREADS STREQUAL "true")
     set(TVG_REQUIRES pthread)
 endif()
 
-# Add heap component for custom allocator
-idf_component_get_property(heap_lib "heap" COMPONENT_LIB GENERATOR_EXPRESSION)
-set(heap_lib_path_expr "$<TARGET_FILE_DIR:${heap_lib}>")
-list(APPEND linker_args "-L${heap_lib_path_expr}")
-
-idf_component_get_property(heap_dir "heap" COMPONENT_DIR)
-idf_component_get_property(heap_includes "heap" INCLUDE_DIRS)
-foreach(dir ${heap_includes})
-    list(APPEND compiler_args "-I${heap_dir}/${dir}")
-endforeach()
-
-# for esp_err.h etc.
-idf_component_get_property(esp_common_lib "esp_common" COMPONENT_LIB GENERATOR_EXPRESSION)
-set(esp_common_lib_path_expr "$<TARGET_FILE_DIR:${esp_common_lib}>")
-list(APPEND linker_args "-L${esp_common_lib_path_expr}")
-
-idf_component_get_property(esp_common_dir "esp_common" COMPONENT_DIR)
-idf_component_get_property(esp_common_includes "esp_common" INCLUDE_DIRS)
-foreach(dir ${esp_common_includes})
-    list(APPEND compiler_args "-I${esp_common_dir}/${dir}")
-endforeach()
+# Add compiler flag to allow type mismatches
+list(APPEND compiler_args "-fpermissive")
 
 # Add include directory for sdkconfig.h
 list(APPEND compiler_args "-I${CMAKE_BINARY_DIR}/config")
@@ -127,7 +107,6 @@ ExternalProject_Add(${TVG_LIB}_target
     -Dthreads=${TVG_THREADS}
     -Dlog=${TVG_LOG} # allow log output
     -Dloaders=${TVG_LOADERS_OPTION}   # Pass the loaders option to Meson
-    -Dcustom_allocator_header=${CMAKE_CURRENT_SOURCE_DIR}/psram_allocator.h
     BUILD_COMMAND ninja -C ${TVG_BUILD_DIR}
     INSTALL_COMMAND ""
     BUILD_BYPRODUCTS ${TVG_BUILD_DIR}/src/${TVG_LIB}.a
