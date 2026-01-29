@@ -109,10 +109,10 @@ ExternalProject_Add(${TVG_LIB}_target
     -Dloaders=${TVG_LOADERS_OPTION}   # Pass the loaders option to Meson
     BUILD_COMMAND ninja -C ${TVG_BUILD_DIR}
     INSTALL_COMMAND ""
-    BUILD_BYPRODUCTS ${TVG_BUILD_DIR}/src/${TVG_LIB}.a
+    BUILD_BYPRODUCTS ${TVG_BUILD_DIR}/src/${TVG_LIB}-1.a
 )
 
-add_prebuilt_library(${TVG_LIB} ${TVG_BUILD_DIR}/src/${TVG_LIB}.a PRIV_REQUIRES ${TVG_REQUIRES})
+add_prebuilt_library(${TVG_LIB} ${TVG_BUILD_DIR}/src/${TVG_LIB}-1.a PRIV_REQUIRES ${TVG_REQUIRES})
 add_dependencies(${TVG_LIB} ${TVG_LIB}_target)
 
 if(TVG_THREADS STREQUAL "true")
