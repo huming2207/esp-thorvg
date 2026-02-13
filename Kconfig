@@ -34,6 +34,10 @@ menu "ThorVG Support Options"
             bool "Enable webp loader support"
             default n
 
+        config THORVG_TTF_LOADER_SUPPORT
+            bool "Enable TTF font loader support"
+            default y
+
     endmenu
 
 endmenu
