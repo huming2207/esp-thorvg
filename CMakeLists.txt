@@ -55,11 +55,16 @@ idf_component_register(
 
 
 # Convert argument strings to lists, for easier processing
-set(linker_args ${CMAKE_EXE_LINKER_FLAGS})
-separate_arguments(linker_args)
+set(linker_args "")
+if(CMAKE_EXE_LINKER_FLAGS)
+    separate_arguments(linker_args NATIVE_COMMAND "${CMAKE_EXE_LINKER_FLAGS}")
+endif()
 list(FILTER linker_args EXCLUDE REGEX "^$")
-set(compiler_args ${CMAKE_CXX_FLAGS})
-separate_arguments(compiler_args)
+
+set(compiler_args "")
+if(CMAKE_CXX_FLAGS)
+    separate_arguments(compiler_args NATIVE_COMMAND "${CMAKE_CXX_FLAGS}")
+endif()
 list(FILTER compiler_args EXCLUDE REGEX "^$")
 
 # Add pthread library path to the linker flags if threads are enabled
@@ -82,10 +87,21 @@ message(STATUS "ThorVG: CMAKE_EXE_LINKER_FLAGS: ${linker_args}")
 message(STATUS "ThorVG: CMAKE_CXX_FLAGS: ${compiler_args}")
 
 # Convert the list of arguments (arg;arg;arg) to a string "'arg', 'arg', 'arg'"
-list(JOIN compiler_args "', '" MESON_CXX_FLAGS)
-set(MESON_CXX_FLAGS "'${MESON_CXX_FLAGS}'")
-list(JOIN linker_args "', '" MESON_LINKER_FLAGS)
-set(MESON_LINKER_FLAGS "'${MESON_LINKER_FLAGS}'")
+set(MESON_CXX_FLAGS "")
+foreach(arg IN LISTS compiler_args)
+    if(MESON_CXX_FLAGS)
+        string(APPEND MESON_CXX_FLAGS ", ")
+    endif()
+    string(APPEND MESON_CXX_FLAGS "'${arg}'")
+endforeach()
+
+set(MESON_LINKER_FLAGS "")
+foreach(arg IN LISTS linker_args)
+    if(MESON_LINKER_FLAGS)
+        string(APPEND MESON_LINKER_FLAGS ", ")
+    endif()
+    string(APPEND MESON_LINKER_FLAGS "'${arg}'")
+endforeach()
 
 # Please note, xtensa is not recognized by Meson, but "riscv32" is a safe generic option
 # Always use "riscv32" as cpu_family in cross_file.txt to avoid Meson warnings
