@@ -80,6 +80,14 @@ list(APPEND compiler_args "-fpermissive")
 
 # Add include directory for sdkconfig.h
 list(APPEND compiler_args "-I${CMAKE_BINARY_DIR}/config")
+
+# PIE SIMD raster functions (pie/tvgSwRasterEspPie.h, inline asm). The macro makes
+# tvgSwRaster.cpp include that header and call it; -march with PIE already comes
+# from ESP-IDF through CMAKE_CXX_FLAGS (@cxxflags) above.
+if(CONFIG_THORVG_ESP_PIE_V2)
+    list(APPEND compiler_args "-DTHORVG_ESP_PIE_V2_SUPPORT=1")
+    list(APPEND compiler_args "-I${CMAKE_CURRENT_SOURCE_DIR}/pie")
+endif()
 list(APPEND TVG_REQUIRES heap)
 
 

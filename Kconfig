@@ -12,6 +12,19 @@ menu "ThorVG Support Options"
         help
             Enable ThorVG threading support. This option can be disabled if ThorVG is only used from one FreeRTOS task.
 
+    config THORVG_ESP_PIE_V2
+        bool "Accelerate the CPU rasterizer with PIE v2 SIMD (experimental)"
+        depends on IDF_TARGET_ESP32S31 && !FREERTOS_UNICORE
+        default n
+        help
+            Use the Espressif PIE SIMD extension for solid fills and translucent
+            shape blending (ARGB8888 only). Sets THORVG_ESP_PIE_V2_SUPPORT for ThorVG.
+
+            On ESP32-S31 only core 1 has PIE: create the rendering task (and ThorVG
+            worker threads, if any) pinned to core 1. Otherwise FreeRTOS migrates the
+            task to core 1 on its first PIE instruction. Do not render from an ISR or
+            inside a critical section, as PIE use there aborts.
+
     menu "Loaders Support"
 
         config THORVG_LOTTIE_LOADER_SUPPORT

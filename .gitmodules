@@ -1,3 +1,4 @@
 [submodule "thorvg"]
 	path = thorvg
-	url = https://github.com/huming2207/thorvg
+	url = https://github.com/huming2207/thorvg.git
+	branch = jmh/esp
