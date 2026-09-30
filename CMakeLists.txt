@@ -67,13 +67,12 @@ if(CMAKE_CXX_FLAGS)
 endif()
 list(FILTER compiler_args EXCLUDE REGEX "^$")
 
-# Add pthread library path to the linker flags if threads are enabled
-if(TVG_THREADS STREQUAL "true")
-    idf_component_get_property(pthread_lib "pthread" COMPONENT_LIB GENERATOR_EXPRESSION)
-    set(pthread_lib_path_expr "$<TARGET_FILE_DIR:${pthread_lib}>")
-    list(APPEND linker_args "-L${pthread_lib_path_expr}")
-    set(TVG_REQUIRES pthread)
-endif()
+# Add pthread library path to the linker flags. ThorVG's meson.build looks up pthread on every
+# non-Windows host even with -Dthreads=false, so Meson setup fails without this.
+idf_component_get_property(pthread_lib "pthread" COMPONENT_LIB GENERATOR_EXPRESSION)
+set(pthread_lib_path_expr "$<TARGET_FILE_DIR:${pthread_lib}>")
+list(APPEND linker_args "-L${pthread_lib_path_expr}")
+set(TVG_REQUIRES pthread)
 
 # Add compiler flag to allow type mismatches
 list(APPEND compiler_args "-fpermissive")
@@ -143,9 +142,7 @@ ExternalProject_Add(${TVG_LIB}_target
 add_prebuilt_library(${TVG_LIB} ${TVG_BUILD_DIR}/src/${TVG_LIB}-1.a PRIV_REQUIRES ${TVG_REQUIRES})
 add_dependencies(${TVG_LIB} ${TVG_LIB}_target)
 
-if(TVG_THREADS STREQUAL "true")
-    add_dependencies(${TVG_LIB}_target idf::pthread)
-endif()
+add_dependencies(${TVG_LIB}_target idf::pthread)
 
 add_dependencies(${TVG_LIB}_target idf::heap)
 add_dependencies(${TVG_LIB}_target idf::esp_common)
