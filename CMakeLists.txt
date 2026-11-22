@@ -125,7 +125,10 @@ ExternalProject_Add(${TVG_LIB}_target
     PREFIX ${TVG_BUILD_DIR}
     SOURCE_DIR ${TVG_SUBDIR}
     BINARY_DIR ${TVG_BUILD_DIR}
-    CONFIGURE_COMMAND meson setup ${TVG_BUILD_DIR} ${TVG_SUBDIR}
+    # We remove the build directory before setup to ensure a clean configuration
+    # when Kconfig options change. This is triggered by ExternalProject_Add_StepDependencies.
+    CONFIGURE_COMMAND ${CMAKE_COMMAND} -E remove_directory ${TVG_BUILD_DIR}
+    COMMAND meson setup ${TVG_BUILD_DIR} ${TVG_SUBDIR}
     --cross-file ${TVG_CROSS_CFG}
     -Dbindings=capi
     -Dextra=
@@ -137,7 +140,13 @@ ExternalProject_Add(${TVG_LIB}_target
     BUILD_COMMAND ninja -C ${TVG_BUILD_DIR}
     INSTALL_COMMAND ""
     BUILD_BYPRODUCTS ${TVG_BUILD_DIR}/src/${TVG_LIB}-1.a
+    BUILD_ALWAYS 1
+    USES_TERMINAL_CONFIGURE 1
+    USES_TERMINAL_BUILD 1
 )
+
+# Force re-configure when the cross-file (which tracks Kconfig changes) changes
+ExternalProject_Add_StepDependencies(${TVG_LIB}_target configure ${TVG_CROSS_CFG})
 
 add_prebuilt_library(${TVG_LIB} ${TVG_BUILD_DIR}/src/${TVG_LIB}-1.a PRIV_REQUIRES ${TVG_REQUIRES})
 add_dependencies(${TVG_LIB} ${TVG_LIB}_target)

@@ -1,4 +1,5 @@
 [binaries]
+# ThorVG Configuration: threads=${TVG_THREADS}, log=${TVG_LOG}, loaders=${TVG_LOADERS_OPTION}
 cpp = '${CMAKE_CXX_COMPILER}'
 ar = '${CMAKE_CXX_COMPILER_AR}'
 as = '${CMAKE_ASM_COMPILER}'
