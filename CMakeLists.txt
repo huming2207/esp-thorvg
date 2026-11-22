@@ -2,7 +2,8 @@
 set(TVG_LIB libthorvg)
 set(TVG_SUBDIR "${CMAKE_CURRENT_SOURCE_DIR}/thorvg")
 set(TVG_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/thorvg_build")
-set(TVG_CROSS_CFG "${CMAKE_CURRENT_BINARY_DIR}/thorvg_build/cross_file.txt")
+# Kept outside of TVG_BUILD_DIR, which is wiped before every Meson setup
+set(TVG_CROSS_CFG "${CMAKE_CURRENT_BINARY_DIR}/cross_file.txt")
 
 set(TVG_LOADERS_OPTION "")
 
@@ -48,6 +49,13 @@ else()
     set(TVG_THREADS "false")
 endif()
 
+# ThorVG detects PIE from the -march that ESP-IDF passes through CMAKE_CXX_FLAGS (@cxxflags).
+if(CONFIG_THORVG_SIMD_ENABLED)
+    set(TVG_SIMD "true")
+else()
+    set(TVG_SIMD "false")
+endif()
+
 idf_component_register(
     SRCS "dummy.c"
     INCLUDE_DIRS "thorvg/src/bindings/capi" "thorvg/inc"
@@ -80,13 +88,6 @@ list(APPEND compiler_args "-fpermissive")
 # Add include directory for sdkconfig.h
 list(APPEND compiler_args "-I${CMAKE_BINARY_DIR}/config")
 
-# PIE SIMD raster functions (pie/tvgSwRasterEspPie.h, inline asm). The macro makes
-# tvgSwRaster.cpp include that header and call it; -march with PIE already comes
-# from ESP-IDF through CMAKE_CXX_FLAGS (@cxxflags) above.
-if(CONFIG_THORVG_ESP_PIE_V2)
-    list(APPEND compiler_args "-DTHORVG_ESP_PIE_V2_SUPPORT=1")
-    list(APPEND compiler_args "-I${CMAKE_CURRENT_SOURCE_DIR}/pie")
-endif()
 list(APPEND TVG_REQUIRES heap)
 
 
@@ -122,19 +123,21 @@ file(GENERATE OUTPUT ${TVG_CROSS_CFG} INPUT ${TVG_CROSS_CFG}.tmp)
 include(ExternalProject)
 
 ExternalProject_Add(${TVG_LIB}_target
-    PREFIX ${TVG_BUILD_DIR}
+    PREFIX ${CMAKE_CURRENT_BINARY_DIR}/thorvg_ep
     SOURCE_DIR ${TVG_SUBDIR}
     BINARY_DIR ${TVG_BUILD_DIR}
     # We remove the build directory before setup to ensure a clean configuration
     # when Kconfig options change. This is triggered by ExternalProject_Add_StepDependencies.
+    # Meson runs from the source directory, as its working directory (the build directory) was just removed.
     CONFIGURE_COMMAND ${CMAKE_COMMAND} -E remove_directory ${TVG_BUILD_DIR}
-    COMMAND meson setup ${TVG_BUILD_DIR} ${TVG_SUBDIR}
+    COMMAND ${CMAKE_COMMAND} -E chdir ${TVG_SUBDIR} meson setup ${TVG_BUILD_DIR} ${TVG_SUBDIR}
     --cross-file ${TVG_CROSS_CFG}
     -Dbindings=capi
     -Dextra=
     -Ddefault_library=static # build static library
     -Db_staticpic=false # no -fPIC
     -Dthreads=${TVG_THREADS}
+    -Dsimd=${TVG_SIMD}
     -Dlog=${TVG_LOG} # allow log output
     -Dloaders=${TVG_LOADERS_OPTION}   # Pass the loaders option to Meson
     BUILD_COMMAND ninja -C ${TVG_BUILD_DIR}

@@ -24,13 +24,10 @@ global `new`/`delete` operators unchanged. Public value types remain plain data.
 
 ## PIE SIMD (experimental)
 
-`CONFIG_THORVG_ESP_PIE_V2` (menuconfig → ThorVG Support Options) speeds up solid
-fills and translucent shape blending on ARGB8888 surfaces with the PIE v2 SIMD
-extension. It is currently available on ESP32-S31 only.
-
-The kernels live in `pie/tvgSwRasterEspPie.h` as commented inline assembly.
-CMake passes `-DTHORVG_ESP_PIE_V2_SUPPORT=1` and `-Ipie` to the Meson build, and
-`tvgSwRaster.cpp` in the ThorVG fork includes that header and calls its functions.
+`CONFIG_THORVG_SIMD_ENABLED` (menuconfig → ThorVG Support Options) builds ThorVG with
+`-Dsimd=true`. ThorVG then enables its PIE kernels when ESP-IDF targets the PIE
+extension (`-march=..._xespv` on ESP32-P4 rev >= 3 and ESP32-S31, `_xespv2p1` on
+ESP32-P4 rev < 3). They speed up solid fills, translucent spans and the Rgb565 target fills.
 
 On ESP32-S31 only core 1 has PIE, so create the rendering task pinned to core 1.
 Do not render from an ISR or inside a critical section.
