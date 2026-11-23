@@ -25,6 +25,30 @@ menu "ThorVG Support Options"
             Otherwise FreeRTOS migrates the task to core 1 on its first PIE instruction.
             Do not render from an ISR or inside a critical section, as PIE use there aborts.
 
+    config THORVG_QUICKJS
+        bool "QuickJS bindings (webcanvas-style JS API)"
+        default n
+        help
+            Build js/, a QuickJS module shaped after @thorvg/webcanvas.
+            Needs a QuickJS component in the build, see THORVG_QUICKJS_COMPONENT.
+
+    config THORVG_QUICKJS_COMPONENT
+        string "QuickJS component name"
+        depends on THORVG_QUICKJS
+        default "esp-quickjs-ng"
+        help
+            Name of the component providing quickjs.h, as the build sees it
+            (directory name, or e.g. "huming2207__esp-quickjs-ng" when it comes
+            from the component manager).
+
+    config THORVG_JS_MAX_SURFACES
+        int "Max framebuffers registered for JS"
+        depends on THORVG_QUICKJS
+        range 1 16
+        default 2
+        help
+            Size of the static table behind tvg_js_add_surface().
+
     menu "Loaders Support"
 
         config THORVG_LOTTIE_LOADER_SUPPORT

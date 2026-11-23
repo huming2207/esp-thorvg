@@ -31,3 +31,72 @@ ESP32-P4 rev < 3). They speed up solid fills, translucent spans and the Rgb565 t
 
 On ESP32-S31 only core 1 has PIE, so create the rendering task pinned to core 1.
 Do not render from an ISR or inside a critical section.
+
+## QuickJS bindings (optional)
+
+`js/` is a QuickJS module with the same classes and calls as
+[@thorvg/webcanvas](https://github.com/thorvg/thorvg.web), on ThorVG's C API.
+Turn it on with `CONFIG_THORVG_QUICKJS` (menuconfig → ThorVG Support Options).
+It needs a QuickJS component in the build; its name is
+`CONFIG_THORVG_QUICKJS_COMPONENT` (default `esp-quickjs-ng`). Your app has to
+require that component itself; ESP-IDF won't let `REQUIRES` depend on Kconfig.
+
+```c
+tvg_engine_init(0);                         // the host owns the engine
+tvg_js_surface_t s = { .buf = fb, .stride = 800, .w = 800, .h = 480,
+                       .cs = TVG_COLORSPACE_RGB565, .present = flush, .arg = NULL };
+tvg_js_add_surface("#lcd", &s);
+tvg_js_init_module(ctx, "thorvg");
+// ... run JS, JS_FreeContext(), then tvg_js_remove_surface() and tvg_engine_term()
+```
+
+```js
+import { init } from 'thorvg';
+const TVG = await init();
+const canvas = new TVG.Canvas('#lcd');      // or new TVG.Canvas(uint32Array, { width, height })
+canvas.add(new TVG.Shape().appendRect(0, 0, 100, 100, { rx: 10 }).fill(255, 0, 0));
+canvas.render();                            // draws, then calls present() with the dirty regions
+```
+
+Differences from webcanvas:
+
+- `Canvas` targets a surface the host registered, or an ArrayBuffer/typed array.
+  `renderer`, `threads` and `locateFile` in `init()` are ignored; it's always the
+  CPU renderer, and `term()` does nothing (the host terminates the engine).
+- `render()` only clears the whole target on its first draw. With the default
+  engine option ThorVG then redraws just the dirty regions. Clearing every
+  frame, as webcanvas does, forces a full redraw (10x slower here).
+- No `requestAnimationFrame`: playing animations advance at the start of each
+  `Canvas.render()`, so your render loop is the clock. A playing animation
+  keeps itself alive until paused, like the rAF closure in a browser. Frames
+  advance by elapsed time, so rendering two canvases doesn't speed anything
+  up, but `onFrame` fires on every `render()`.
+- With `init({ onError })`, a failed ThorVG call is reported and the method
+  stops there, returning `this`; nothing after the failed call happens.
+- `clip()` only takes a `Shape` (ThorVG would crash on anything else).
+  `clip(null)` and `mask(null, MaskMethod.None)` remove them. Anything that
+  would make a paint its own child, clipper or mask throws a `RangeError`.
+- Gradients are templates: `fill(gradient)` hands ThorVG a copy, so one
+  gradient can fill many shapes and stops stay after `fill()`.
+- Wrappers hold a ThorVG ref, so dropping the last JS reference to a `Scene`
+  frees it and detaches its children. Keep a reference to parents you still need.
+- Extras: `ColorSpace.RGB565/XRGB8888/XBGR8888`, `EngineOption.Aliased`,
+  `Picture.loadFile(path)` and `Font.loadFile(path)` (straight from the
+  filesystem, no second copy in the JS heap).
+- Missing: `Video`, Lottie audio (`volume`, `resolver`), `Picture.resolver()`
+  (ThorVG may call it from a loader thread), and `FontsourceProvider`.
+  `Font.load()` needs the bytes.
+- One JS context at a time can import the module.
+
+Caveats seen on hardware/emulator:
+
+- Turn `CONFIG_THORVG_THREAD_ENABLED` off unless you really use worker
+  threads. With it on, every render task carries a FreeRTOS mutex and condvar
+  in internal RAM, and a ~250 shape SVG runs an S3 out of internal heap.
+- Scene effects (`dropShadow`, `gaussianBlur`, ...) crash on an RGB565 target:
+  `tvgSwPostEffect.cpp` assumes 32-bit pixels. They work on 32-bit targets.
+  They also allocate square scratch buffers, `max(w, h)^2 * 4` bytes each
+  (2.5 MB for 800x480), and ThorVG doesn't check those allocations.
+
+`examples/quickjs` runs the whole API in esp-emu and dumps the final frame
+(`QJS_ESP_DIR=/path/to/esp-quickjs-ng idf.py build`).

@@ -56,10 +56,29 @@ else()
     set(TVG_SIMD "false")
 endif()
 
+set(srcs "dummy.c")
+set(incs "thorvg/src/bindings/capi" "thorvg/inc")
+if(CONFIG_THORVG_QUICKJS)
+    list(APPEND srcs js/tvg_js.c js/tvg_js_paint.c js/tvg_js_fill.c js/tvg_js_anim.c js/tvg_js_canvas.c)
+    list(APPEND incs js)
+endif()
+
 idf_component_register(
-    SRCS "dummy.c"
-    INCLUDE_DIRS "thorvg/src/bindings/capi" "thorvg/inc"
-    PRIV_REQUIRES pthread)
+    SRCS ${srcs}
+    INCLUDE_DIRS ${incs}
+    PRIV_REQUIRES pthread esp_timer)
+
+# REQUIRES can't depend on Kconfig, so pull QuickJS in afterwards. The app
+# has to require that component itself (it runs the JS anyway).
+if(CONFIG_THORVG_QUICKJS)
+    set(qjs_comp "${CONFIG_THORVG_QUICKJS_COMPONENT}")
+    idf_build_get_property(build_components BUILD_COMPONENTS)
+    if(NOT qjs_comp IN_LIST build_components)
+        message(FATAL_ERROR "CONFIG_THORVG_QUICKJS: component '${qjs_comp}' isn't in the build "
+                            "(check CONFIG_THORVG_QUICKJS_COMPONENT and your app's REQUIRES)")
+    endif()
+    idf_component_optional_requires(PUBLIC ${qjs_comp})
+endif()
 
 
 # Convert argument strings to lists, for easier processing

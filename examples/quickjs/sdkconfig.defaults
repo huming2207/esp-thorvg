@@ -1,0 +1,10 @@
+CONFIG_FREERTOS_HZ=1000
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_SPIRAM=y
+CONFIG_THORVG_QUICKJS=y
+# JS renders on its own task with 0 workers. With threads on, every render task
+# carries a FreeRTOS mutex + condvar in internal RAM: a big SVG runs S3 dry.
+CONFIG_THORVG_THREAD_ENABLED=n
