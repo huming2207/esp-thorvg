@@ -206,6 +206,7 @@ static int retarget(JSContext *ctx, canvas_t *c, bool force)
  * new Canvas(target, { width, height, engineOption, colorSpace })
  * target: registered surface name, or ArrayBuffer / typed array.
  * Surfaces default to their full size; buffers to 800x600 ABGR8888 like webcanvas.
+ * Aliased surfaces default to SmartRender | Aliased.
  */
 static JSValue canvas_ctor(JSContext *ctx, JSValueConst new_target, int argc, JSValueConst *argv, int magic)
 {
@@ -229,6 +230,9 @@ static JSValue canvas_ctor(JSContext *ctx, JSValueConst new_target, int argc, JS
         w = surfaces[surf].s.w;
         h = surfaces[surf].s.h;
         cs = surfaces[surf].s.cs;
+        if (surfaces[surf].s.aliased) {
+            eo = TVG_ENGINE_OPTION_SMART_RENDER | TVG_ENGINE_OPTION_ALIASED;
+        }
     }
 
     canvas_t *c = NULL;

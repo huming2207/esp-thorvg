@@ -12,6 +12,7 @@
  */
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <esp_err.h>
 #include "quickjs.h"
@@ -35,6 +36,13 @@ typedef struct {
     Tvg_Colorspace cs;          /* ABGR8888/ARGB8888(S), GRAYSCALE8 or RGB565 */
     tvg_js_present_t present;   /* optional */
     void *arg;
+    /*
+     * Canvases on this surface default to SMART_RENDER | ALIASED instead of
+     * DEFAULT; a JS engineOption still wins. For palette displays (e-paper):
+     * anti-aliased edges are blends the panel can't show, and dithering them
+     * leaves a comb of teeth along every edge.
+     */
+    bool aliased;
 } tvg_js_surface_t;
 
 /*

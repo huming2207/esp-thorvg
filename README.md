@@ -63,6 +63,10 @@ Differences from webcanvas:
 - `Canvas` targets a surface the host registered, or an ArrayBuffer/typed array.
   `renderer`, `threads` and `locateFile` in `init()` are ignored; it's always the
   CPU renderer, and `term()` does nothing (the host terminates the engine).
+- A surface registered with `.aliased = true` gives its canvases
+  `EngineOption.SmartRender | EngineOption.Aliased` unless JS passes
+  `engineOption`. Use it for palette displays (e-paper), where dithering
+  anti-aliased edges leaves a comb of teeth along them.
 - `render()` only clears the whole target on its first draw. With the default
   engine option ThorVG then redraws just the dirty regions. Clearing every
   frame, as webcanvas does, forces a full redraw (10x slower here).
