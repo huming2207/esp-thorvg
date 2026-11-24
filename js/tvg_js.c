@@ -349,7 +349,7 @@ static const char error_src[] =
 static const char *const exports[] = {
     "Paint", "Canvas", "Shape", "Scene", "Picture", "Text", "Animation", "LottieAnimation",
     "LinearGradient", "RadialGradient", "ConicGradient", "Font", "Accessor",
-    "constants", "ThorVGResultCode", "ThorVGError",
+    "constants", "ThorVGResultCode", "ThorVGError", "Layout",
 };
 
 static int bind_classes(JSContext *ctx)
@@ -391,7 +391,7 @@ static int module_init(JSContext *ctx, JSModuleDef *m)
     JS_SetPropertyStr(ctx, ns, "ThorVGError", err);
 
     if (tjs_init_paints(ctx, ns) || tjs_init_fills(ctx, ns) || tjs_init_anims(ctx, ns) ||
-        tjs_init_canvas(ctx, ns)) {
+        tjs_init_canvas(ctx, ns) || tjs_init_layout(ctx, ns)) {
         goto fail;
     }
 

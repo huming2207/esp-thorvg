@@ -41,6 +41,14 @@ menu "ThorVG Support Options"
             (directory name, or e.g. "huming2207__esp-quickjs-ng" when it comes
             from the component manager).
 
+    config THORVG_JS_LAYOUT
+        bool "Yoga flexbox layout for JS (Layout class)"
+        depends on THORVG_QUICKJS
+        default y
+        help
+            Builds the yoga/ submodule and exposes it to JS as Layout: flexbox
+            nodes that position Paints and measure Text through ThorVG.
+
     config THORVG_JS_MAX_SURFACES
         int "Max framebuffers registered for JS"
         depends on THORVG_QUICKJS

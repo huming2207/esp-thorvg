@@ -2,6 +2,7 @@
 // Same calls as @thorvg/webcanvas, just no wasm and no <canvas>.
 import { init, Shape, Canvas, ThorVGError } from 'thorvg';
 import * as os from 'qjs:os';
+import * as std from 'qjs:std';
 
 const sleep = (ms) => new Promise((r) => os.setTimeout(r, ms));
 let failed = 0;
@@ -231,6 +232,146 @@ const svg = asset('svg');
     sa.stop();
     seg.dispose();
     sa.dispose();
+}
+
+// --- add(paint, before) ---
+{
+    const px = new Uint32Array(4 * 4);
+    const c = new TVG.Canvas(px, { width: 4, height: 4 });
+    const red = new TVG.Shape().appendRect(0, 0, 4, 4).fill(255, 0, 0);
+    const blue = new TVG.Shape().appendRect(0, 0, 4, 4).fill(0, 0, 255);
+    const s = new TVG.Scene().add(red);
+    s.add(blue, red);                   // blue goes under red
+    c.add(s);
+    c.render();
+    check('scene add before: order', px[0] === 0xff0000ff, px[0].toString(16));
+    const green = new TVG.Shape().appendRect(0, 0, 4, 4).fill(0, 255, 0);
+    c.add(green, s);                    // green under the whole scene
+    c.render();
+    check('canvas add before: order', px[0] === 0xff0000ff, px[0].toString(16));
+    const stray = new TVG.Shape();
+    const loose = new TVG.Shape();
+    throws('scene add before a non-child', () => s.add(stray, loose), RangeError);
+    throws('canvas add before a non-child', () => c.add(stray, loose), RangeError);
+    s.add(stray);                       // refused add left it free, no leaked parent
+    check('paint still addable after a refused add', true);
+    throws('scene add before: before not a paint', () => s.add(loose, {}), TypeError);
+    c.destroy();
+}
+
+// --- Layout (Yoga) ---
+{
+    const { Layout } = TVG;
+    const rect = () => new TVG.Shape().appendRect(0, 0, 10, 10).fill(0, 0, 0);
+    const root = new Layout({ width: 300, height: 200, flexDirection: 'row', padding: 10, gap: 10 });
+    const a = new Layout({ flexGrow: 1 }, rect());
+    const b = new Layout({ flexGrow: 1 }, rect());
+    root.add(a).add(b);
+    root.calculate();
+    const la = a.layout, lb = b.layout;
+    check('row: first child', la.left === 10 && la.top === 10 && la.width === 135 && la.height === 180, JSON.stringify(la));
+    check('row: second child', lb.left === 155 && lb.width === 135, JSON.stringify(lb));
+    const bb = b.paint.bounds();
+    check('bound paint translated', bb.x === 155 && bb.y === 10, JSON.stringify(bb));
+
+    const c = new Layout({ width: 50 });
+    root.add(c, a);                     // insert before a
+    root.calculate();
+    check('layout add before', c.layout.left === 10 && a.layout.left === 70, `${c.layout.left} ${a.layout.left}`);
+    check('childCount', root.childCount === 3);
+    root.remove(c);
+    root.calculate();
+    check('remove', root.childCount === 2 && a.layout.left === 10);
+
+    // text measured by Yoga through ThorVG
+    const col = new Layout({ width: 400, alignItems: 'flex-start' });
+    const t = new TVG.Text().font('PublicSans').fontSize(40).text('Hello').fill(0, 0, 0);
+    const tl = new Layout({}, t);
+    col.add(tl);
+    col.calculate();
+    const m = t.metrics();
+    const lineH = Math.ceil(m.advance - m.linegap);
+    const w1 = tl.layout.width;
+    check('text height is one line box', tl.layout.height === lineH, `${tl.layout.height} vs ${lineH}`);
+    check('text width from glyphs', w1 > 60 && w1 < 140, `${w1}`);
+    t.text('Hello world, again');
+    check('text change marks dirty', tl.isDirty);
+    col.calculate();
+    check('text grew', tl.layout.width > w1 * 2, `${tl.layout.width}`);
+
+    const narrow = new Layout({ width: 150 });
+    const wt = new TVG.Text().font('PublicSans').fontSize(30).wrap(TVG.TextWrapMode.Word)
+        .text('one two three four five').fill(0, 0, 0);
+    const wl = new Layout({}, wt);
+    narrow.add(wl);
+    narrow.calculate();
+    const wm = wt.metrics();
+    const lines = wt.lines();
+    check('word wrap in a 150px box', lines > 1 && wl.layout.width <= 150, `${lines} lines, w ${wl.layout.width}`);
+    check('wrapped height', wl.layout.height === Math.ceil(wm.advance * lines - wm.linegap), `${wl.layout.height}`);
+
+    const centred = new TVG.Text().font('PublicSans').fontSize(20).text('mid').align(0.5, 0).fill(0, 0, 0);
+    const cl = new Layout({ flexGrow: 1 }, centred);
+    const bar = new Layout({ width: 200, flexDirection: 'row' });
+    bar.add(cl);
+    bar.calculate();
+    const cb = centred.bounds();
+    check('align(0.5) centres in the node box', Math.abs(cb.x + cb.width / 2 - 100) < 2, JSON.stringify(cb));
+
+    const hidden = new Layout({ display: 'none', width: 40 }, rect());
+    root.add(hidden);
+    root.calculate();
+    check('display none', hidden.layout.width === 0);
+    root.remove(hidden);
+
+    check('percent and auto', (() => {
+        const p = new Layout({ width: 200, height: 100 });
+        const q = new Layout({ width: '50%', height: '25%', marginLeft: 'auto' });
+        p.add(q).calculate();
+        const l = q.layout;
+        return l.width === 100 && l.height === 25 && l.left === 100;
+    })());
+
+    // everything Yoga would abort on comes back as a JS error
+    throws('add a child that has a parent', () => new Layout().add(a), RangeError);
+    throws('add to a Text node', () => tl.add(new Layout()), RangeError);
+    throws('add an ancestor', () => a.add(root), RangeError);
+    throws('add itself', () => a.add(a), RangeError);
+    throws('bind Text to a node with children', () => { root.paint = new TVG.Text(); }, RangeError);
+    throws('one paint, two nodes', () => new Layout({}, a.paint), RangeError);
+    throws('calculate on a child', () => a.calculate(), RangeError);
+    throws('remove a non-child', () => root.remove(new Layout()), RangeError);
+    throws('add before a non-child', () => root.add(new Layout(), new Layout()), RangeError);
+    throws('unknown style', () => a.style({ colour: 1 }), RangeError);
+    throws('bad enum', () => a.style({ flexDirection: 'diagonal' }), RangeError);
+    throws('bad length', () => a.style({ width: '12px' }), TypeError);
+    throws('auto where Yoga has none', () => a.style({ padding: 'auto' }), RangeError);
+    throws('NaN length', () => a.style({ width: NaN }), RangeError);
+    throws('dispose a child', () => a.dispose(), RangeError);
+    a.markDirty();                      // not measured: a no-op, not a Yoga abort
+    check('markDirty on a plain node', true);
+    a.style({ width: null, flexGrow: null, flexDirection: null });
+    check('null resets', true);
+
+    // ownership: a dropped parent frees its node and lets go of the children
+    let parent = new Layout();
+    const kid = new Layout({ width: 7 });
+    parent.add(kid);
+    parent = null;
+    std.gc();
+    const adopter = new Layout();
+    adopter.add(kid).calculate();
+    check('child survives its parent', kid.layout.width === 7);
+    let tree = new Layout();
+    for (let i = 0; i < 50; i++) tree.add(new Layout({ height: 2 }, new TVG.Text().font('PublicSans').text('x')));
+    tree.calculate();
+    tree = null;
+    std.gc();
+    check('tree freed', true);
+    const disposed = new Layout();
+    disposed.dispose();
+    check('isDisposed', disposed.isDisposed);
+    throws('use after dispose', () => disposed.style({}), TypeError);
 }
 
 // --- the visible scene on #lcd ---

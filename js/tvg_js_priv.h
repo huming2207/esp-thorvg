@@ -8,6 +8,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <sys/queue.h>
+#include "sdkconfig.h"
 #include "tvg_js.h"
 
 #define countof(a) (sizeof(a) / sizeof((a)[0]))
@@ -21,14 +22,22 @@ enum {
     TJS_SHAPE, TJS_SCENE, TJS_PICTURE, TJS_TEXT,
     TJS_LINEAR, TJS_RADIAL, TJS_CONIC,
     TJS_ANIM, TJS_LOTTIE,
-    TJS_CANVAS, TJS_ACCESSOR, TJS_STATE,
+    TJS_CANVAS, TJS_ACCESSOR, TJS_STATE, TJS_LAYOUT,
     TJS_CLASS_MAX
 };
+
+typedef struct tjs_layout tjs_layout_t;
 
 /* opaque of every Paint subclass */
 typedef struct {
     Tvg_Paint p;        /* JS owns one ref, NULL once disposed */
     bool accessible;    /* only meaningful for Picture, ThorVG has no getter */
+    tjs_layout_t *layout;   /* Layout node driving this paint, if any */
+    struct {            /* Text settings ThorVG has no getters for, Layout needs them */
+        float align[2];
+        float line_spacing;
+        bool wrap;
+    } text;
 } tjs_paint_t;
 
 typedef struct tjs_anim {
@@ -126,3 +135,14 @@ int tjs_init_anims(JSContext *ctx, JSValueConst ns);
 
 /* canvas, font, accessor (tvg_js_canvas.c) */
 int tjs_init_canvas(JSContext *ctx, JSValueConst ns);
+
+/* Yoga layout (tvg_js_layout.c) */
+#if CONFIG_THORVG_JS_LAYOUT
+int tjs_init_layout(JSContext *ctx, JSValueConst ns);
+void tjs_layout_text_changed(tjs_paint_t *w);  /* a bound Text's size may have changed */
+void tjs_layout_paint_gone(tjs_paint_t *w);    /* paint wrapper finalized */
+#else
+static inline int tjs_init_layout(JSContext *ctx, JSValueConst ns) { return 0; }
+static inline void tjs_layout_text_changed(tjs_paint_t *w) {}
+static inline void tjs_layout_paint_gone(tjs_paint_t *w) {}
+#endif

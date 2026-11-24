@@ -84,6 +84,25 @@ Differences from webcanvas:
   gradient can fill many shapes and stops stay after `fill()`.
 - Wrappers hold a ThorVG ref, so dropping the last JS reference to a `Scene`
   frees it and detaches its children. Keep a reference to parents you still need.
+- `Scene.add(paint, before?)` and `Canvas.add(paint, before?)` insert in front of
+  `before`, which must already be a child (a `RangeError` otherwise: ThorVG would
+  leak a ref on `paint`).
+- `Layout` (`CONFIG_THORVG_JS_LAYOUT`, on by default) is a [Yoga](https://yogalayout.dev)
+  flexbox node from the `yoga/` submodule, with React Native's style names:
+  ```js
+  const root = new Layout({ width: 800, height: 480, flexDirection: 'row', padding: 16, gap: 8 });
+  const label = new Layout({ flexGrow: 1 }, new Text().font('Sans').fontSize(24).text('Hi'));
+  root.add(label);          // add(child, before?), remove(child?), style({...}), paint = p
+  root.calculate();         // lays out, then translates every bound paint
+  label.layout;             // { left, top, width, height }, relative to the parent node
+  ```
+  Positions are relative to the parent node, so nest the paints the same way (a
+  `Scene` per container). A `Text` bound to a leaf is measured by Yoga through
+  ThorVG (whole line boxes, `wrap()` honoured) and gets the node size as its
+  `layout()` box, so `align()` works inside it; changing its text or font marks
+  the node dirty. `calculate()` only touches paints whose layout changed, so an
+  unchanged layout leaves no dirty regions. Yoga aborts on a broken invariant
+  (no C++ exceptions), so `Layout` throws a JS error before any call that would.
 - Extras: `ColorSpace.RGB565/XRGB8888/XBGR8888`, `EngineOption.Aliased`,
   `Picture.loadFile(path)` and `Font.loadFile(path)` (straight from the
   filesystem, no second copy in the JS heap).

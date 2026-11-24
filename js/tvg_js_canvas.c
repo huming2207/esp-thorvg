@@ -99,6 +99,7 @@ static void surface_drop(int i)
 
 typedef struct {
     Tvg_Canvas c;       /* NULL once destroyed */
+    Tvg_Paint root;     /* the canvas' root scene, learnt from the first add() */
     int surf;           /* surface slot, or -1 for a buffer target */
     JSValue buf;        /* ArrayBuffer target, kept alive */
     size_t off;         /* byte offset of the view into it */
@@ -290,6 +291,7 @@ fail:
     return JS_EXCEPTION;
 }
 
+/* add(paint, before?): before must already be on the canvas, paint goes in front of it */
 static JSValue canvas_add(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
     CANVAS();
@@ -297,7 +299,21 @@ static JSValue canvas_add(JSContext *ctx, JSValueConst this_val, int argc, JSVal
     if (!p) {
         return JS_EXCEPTION;
     }
-    TJS_TRY(ctx, tvg_canvas_add(c->c, p->p), "add");
+    Tvg_Paint at = NULL;
+    if (argc > 1 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1])) {
+        tjs_paint_t *b = tjs_paint(ctx, argv[1], -1);
+        if (!b) {
+            return JS_EXCEPTION;
+        }
+        /* ThorVG leaks a ref on the paint when `at` isn't in the root scene */
+        if (!c->root || tvg_paint_get_parent(b->p) != c->root) {
+            return JS_ThrowRangeError(ctx, "add: 'before' isn't on this canvas");
+        }
+        at = b->p;
+    }
+    /* the C API's insert refuses a NULL `at`, despite its docs */
+    TJS_TRY(ctx, at ? tvg_canvas_insert(c->c, p->p, at) : tvg_canvas_add(c->c, p->p), "add");
+    c->root = tvg_paint_get_parent(p->p);
     return tjs_this(ctx, this_val);
 }
 
@@ -447,7 +463,7 @@ static JSValue canvas_dpr(JSContext *ctx, JSValueConst this_val)
 }
 
 static const JSCFunctionListEntry canvas_proto[] = {
-    JS_CFUNC_DEF("add", 1, canvas_add),
+    JS_CFUNC_DEF("add", 2, canvas_add),
     JS_CFUNC_DEF("remove", 1, canvas_remove),
     JS_CFUNC_DEF("clear", 0, canvas_clear),
     JS_CFUNC_DEF("update", 0, canvas_update),

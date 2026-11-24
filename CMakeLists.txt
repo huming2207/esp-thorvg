@@ -63,9 +63,22 @@ if(CONFIG_THORVG_QUICKJS)
     list(APPEND incs js)
 endif()
 
+# Yoga (submodule) builds straight into this component
+# Yoga (C++20, ESP-IDF builds C++ as gnu++2b). Without C++ exceptions a broken Yoga invariant is
+# std::terminate() -> abort(), so the binding checks everything Yoga would assert on before calling it.
+set(priv_incs "")
+if(CONFIG_THORVG_JS_LAYOUT)
+    file(GLOB yoga_srcs CONFIGURE_DEPENDS
+         "${CMAKE_CURRENT_SOURCE_DIR}/yoga/yoga/*.cpp"
+         "${CMAKE_CURRENT_SOURCE_DIR}/yoga/yoga/*/*.cpp")
+    list(APPEND srcs js/tvg_js_layout.c ${yoga_srcs})
+    list(APPEND priv_incs yoga)
+endif()
+
 idf_component_register(
     SRCS ${srcs}
     INCLUDE_DIRS ${incs}
+    PRIV_INCLUDE_DIRS ${priv_incs}
     PRIV_REQUIRES pthread esp_timer)
 
 # REQUIRES can't depend on Kconfig, so pull QuickJS in afterwards. The app

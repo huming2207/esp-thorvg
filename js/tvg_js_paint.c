@@ -64,6 +64,7 @@ static JSValue adopt(JSContext *ctx, JSValue obj, Tvg_Paint p)
         return JS_EXCEPTION;
     }
     w->p = p;
+    w->text.line_spacing = 1.0f;    /* ThorVG's default */
     JS_SetOpaque(obj, w);
     return obj;
 }
@@ -150,6 +151,7 @@ static void paint_finalizer(JSRuntime *rt, JSValueConst val)
     JSClassID cid;
     tjs_paint_t *w = JS_GetAnyOpaque(val, &cid);
     if (w) {
+        tjs_layout_paint_gone(w);
         if (w->p) {
             tvg_paint_unref(w->p, true);
         }
@@ -817,6 +819,7 @@ static const JSCFunctionListEntry shape_proto[] = {
 
 /* ---- Scene ---- */
 
+/* add(paint, before?): before must be a child, paint goes in front of it */
 static JSValue scene_add(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
     PAINT(TJS_SCENE);
@@ -824,11 +827,23 @@ static JSValue scene_add(JSContext *ctx, JSValueConst this_val, int argc, JSValu
     if (!c) {
         return JS_EXCEPTION;
     }
+    Tvg_Paint at = NULL;
+    if (arg_set(argc, argv, 1) && !JS_IsNull(argv[1])) {
+        tjs_paint_t *b = tjs_paint(ctx, argv[1], -1);
+        if (!b) {
+            return JS_EXCEPTION;
+        }
+        if (tvg_paint_get_parent(b->p) != w->p) {
+            return JS_ThrowRangeError(ctx, "add: 'before' isn't a child of this scene");
+        }
+        at = b->p;
+    }
     /* ThorVG doesn't check, a scene inside itself recurses forever on render */
     if (tjs_reaches(c->p, w->p)) {
         return JS_ThrowRangeError(ctx, "add: that would put the scene inside itself");
     }
-    TJS_TRY(ctx, tvg_scene_add(w->p, c->p), "add");
+    /* the C API's insert refuses a NULL `at`, despite its docs */
+    TJS_TRY(ctx, at ? tvg_scene_insert(w->p, c->p, at) : tvg_scene_add(w->p, c->p), "add");
     return tjs_this(ctx, this_val);
 }
 
@@ -904,7 +919,7 @@ static JSValue scene_effect(JSContext *ctx, JSValueConst this_val, int argc, JSV
 }
 
 static const JSCFunctionListEntry scene_proto[] = {
-    JS_CFUNC_DEF("add", 1, scene_add),
+    JS_CFUNC_DEF("add", 2, scene_add),
     JS_CFUNC_DEF("remove", 1, scene_remove),
     JS_CFUNC_DEF("clear", 0, scene_remove),
     JS_CFUNC_MAGIC_DEF("resetEffects", 0, scene_effect, 0),
@@ -1103,6 +1118,7 @@ static JSValue text_str(JSContext *ctx, JSValueConst this_val, int argc, JSValue
     Tvg_Result r = magic ? tvg_text_set_text(w->p, s) : tvg_text_set_font(w->p, s);
     JS_FreeCString(ctx, s);
     TJS_TRY(ctx, r, magic ? "text" : "font");
+    tjs_layout_text_changed(w);
     return tjs_this(ctx, this_val);
 }
 
@@ -1124,6 +1140,15 @@ static JSValue text_nums(JSContext *ctx, JSValueConst this_val, int argc, JSValu
     default: r = tvg_text_set_italic(w->p, v[0]); break;
     }
     TJS_TRY(ctx, r, ops[magic]);
+    if (magic == 1) {
+        w->text.align[0] = v[0];
+        w->text.align[1] = v[1];
+    } else if (magic == 3) {
+        w->text.line_spacing = v[1];
+    }
+    if (magic != 2) {   /* a Layout overrides layout() anyway */
+        tjs_layout_text_changed(w);
+    }
     return tjs_this(ctx, this_val);
 }
 
@@ -1161,6 +1186,8 @@ static JSValue text_wrap(JSContext *ctx, JSValueConst this_val, int argc, JSValu
         return JS_EXCEPTION;
     }
     TJS_TRY(ctx, tvg_text_wrap_mode(w->p, m), "wrap");
+    w->text.wrap = m != TVG_TEXT_WRAP_NONE;
+    tjs_layout_text_changed(w);
     return tjs_this(ctx, this_val);
 }
 
