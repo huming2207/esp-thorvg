@@ -1,27 +1,9 @@
 /*
- * Layout: a Yoga flexbox node that can drive one Paint.
+ * Layout: Yoga flexbox node that can drive one Paint. Usage in README.md.
  *
- *   const root = new Layout({ width: 800, height: 480, padding: 16, gap: 8 });
- *   const label = new Layout({ flexGrow: 1 }, new Text().font('SansSerif').text('Hi'));
- *   root.add(label);              // add(child, before?)
- *   root.calculate();             // lays out, then moves every bound paint
- *
- * Layout props follow React Native's style names and Yoga's defaults (column,
- * no shrink). Values: numbers are pixels, 'N%' a percentage, 'auto' where Yoga
- * allows it, undefined/null resets.
- *
- * calculate() translates a bound paint to its node's left/top, which Yoga gives
- * relative to the parent node: nest the paints the same way (a Scene per
- * container). A bound Text with no children is measured by Yoga through
- * ThorVG, and gets its box (Text.layout) set to the node size so align() and
- * wrap() work inside it. Changing its text, font, size, spacing or wrap marks
- * the node dirty. A bound paint is hidden while its node has display: 'none'.
- *
- * Yoga aborts the chip on a broken invariant (no C++ exceptions here), so
- * everything Yoga would assert on is refused with a JS error first.
- *
- * Ownership: a parent holds a JS ref on each child, a node on its paint.
- * Dropping the last JS ref to a parent frees it and detaches its children.
+ * Yoga calls abort() on any broken invariant (no exceptions here), so every
+ * call it could assert on gets checked first and thrown as a JS error instead.
+ * A parent holds a JS ref on each child, a node holds one on its paint.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -32,18 +14,15 @@
 
 struct tjs_layout {
     YGNodeRef node;
-    JSValue self;       /* weak: the wrapper object, for gc_mark and refs taken by a parent */
-    JSValue paint;      /* strong, JS_UNDEFINED when unbound */
-    tjs_paint_t *pw;    /* paint's opaque, cleared by whichever finalizer runs first */
-    bool text;          /* pw is a Text, measured by Yoga */
-    /*
-     * What apply() last gave the paint. ThorVG marks a Text dirty on every
-     * align()/layout() call, even with the same values, so only changes go out
-     * and an unchanged layout leaves no dirty regions behind.
-     */
+    JSValue self;       /* weak, our own wrapper */
+    JSValue paint;      /* strong */
+    tjs_paint_t *pw;    /* whichever finalizer runs first clears this */
+    bool text;
+    /* last values pushed to the paint. ThorVG dirties a Text on every align()/layout()
+     * call even if nothing changed, so only push changes or every frame is all dirty */
     float x, y, w, h;
     int visible;        /* -1 unknown */
-    bool touched;       /* measure_text() changed the Text's box and align */
+    bool touched;       /* measure_text() messed with box/align, apply() must redo them */
 };
 
 #define LAYOUT() \
@@ -69,12 +48,8 @@ static tjs_layout_t *layout_of(YGNodeConstRef n)
     return YGNodeGetContext(n);
 }
 
-/* ---- text measurement ---- */
 
-/*
- * Size of the text box ThorVG lays the glyphs in: the widest line's ink and
- * whole line heights, so a line of 一 is as tall as a line of 夏.
- */
+/* widest line's ink, but whole line heights, so 一 and 夏 get the same height */
 static YGSize measure_text(YGNodeConstRef node, float width, YGMeasureMode wmode, float height,
                            YGMeasureMode hmode)
 {
@@ -87,19 +62,19 @@ static YGSize measure_text(YGNodeConstRef node, float width, YGMeasureMode wmode
     Tvg_Paint p = w->p;
     bool bounded = wmode != YGMeasureModeUndefined && isfinite(width) && width > 0;
 
-    /* measure left aligned in an open box; apply() puts the box and align back */
+    /* measure left aligned with no box height; apply() restores both */
     tvg_text_align(p, 0, 0);
     tvg_text_layout(p, (bounded && w->text.wrap) ? width : 0, 0);
     l->touched = true;
 
-    /* the AABB is in canvas space: take the paint's own translation off */
+    /* AABB includes the paint's own translation */
     Tvg_Matrix m = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
     float x = 0, y = 0, bw = 0, bh = 0;
     tvg_paint_get_transform(p, &m);
     if (tvg_paint_get_aabb(p, &x, &y, &bw, &bh) == TVG_RESULT_SUCCESS && bw > 0) {
         size.width = ceilf(x + bw - m.e13);
     }
-    /* ThorVG's own box height: whole lines minus the last line gap */
+    /* same formula as ThorVG's sfnt loader uses for the text box */
     Tvg_Text_Metrics tm = { 0 };
     uint32_t lines = tvg_text_line_count(p);
     if (tvg_text_get_text_metrics(p, &tm) == TVG_RESULT_SUCCESS && lines > 0) {
@@ -126,6 +101,13 @@ void tjs_layout_text_changed(tjs_paint_t *w)
     }
 }
 
+/* tvg_js_abandon(): the wrapper is gone with the dropped heap, free the bare node */
+void tjs_layout_free_native(void *node)
+{
+    YGNodeSetContext(node, NULL);
+    YGNodeFree(node);
+}
+
 void tjs_layout_paint_gone(tjs_paint_t *w)
 {
     if (w->layout) {
@@ -134,7 +116,6 @@ void tjs_layout_paint_gone(tjs_paint_t *w)
     }
 }
 
-/* ---- binding a paint ---- */
 
 static void unbind(JSRuntime *rt, tjs_layout_t *l)
 {
@@ -177,7 +158,7 @@ static int bind(JSContext *ctx, tjs_layout_t *l, JSValueConst v)
     l->pw = w;
     w->layout = l;
     l->text = text;
-    l->x = l->y = l->w = l->h = NAN;  /* first apply() writes everything */
+    l->x = l->y = l->w = l->h = NAN;  /* force a full push on the next apply() */
     l->visible = -1;
     l->touched = text;
     if (text) {
@@ -187,7 +168,6 @@ static int bind(JSContext *ctx, tjs_layout_t *l, JSValueConst v)
     return 0;
 }
 
-/* ---- style ---- */
 
 typedef struct {
     const char *name;
@@ -241,7 +221,6 @@ static const enum_prop_t enum_props[] = {
     EP("boxSizing", v_box, YGBoxSizingBorderBox, BoxSizing),
 };
 
-/* a length: pixels, percent, auto or unset */
 typedef enum { V_UNSET, V_PX, V_PCT, V_AUTO } vkind_t;
 
 static int parse_value(JSContext *ctx, JSValueConst v, const char *key, vkind_t *kind, float *out)
@@ -286,7 +265,6 @@ static int parse_value(JSContext *ctx, JSValueConst v, const char *key, vkind_t 
     return -1;
 }
 
-/* which value kinds a prop takes */
 enum { A_PX = 1, A_PCT = 2, A_AUTO = 4 };
 
 typedef struct {
@@ -471,7 +449,6 @@ static int apply_style(JSContext *ctx, tjs_layout_t *l, JSValueConst obj)
     return ret;
 }
 
-/* ---- class ---- */
 
 static void detach_children(JSRuntime *rt, tjs_layout_t *l)
 {
@@ -480,7 +457,7 @@ static void detach_children(JSRuntime *rt, tjs_layout_t *l)
         YGNodeRemoveChild(l->node, c);
         tjs_layout_t *cl = layout_of(c);
         if (cl) {
-            JS_FreeValueRT(rt, cl->self);   /* the ref this parent held */
+            JS_FreeValueRT(rt, cl->self);
         }
     }
 }
@@ -492,10 +469,11 @@ static void release(JSRuntime *rt, tjs_layout_t *l)
     }
     YGNodeRef owner = YGNodeGetOwner(l->node);
     if (owner) {
-        YGNodeRemoveChild(owner, l->node);  /* only during GC: a live parent keeps us alive */
+        YGNodeRemoveChild(owner, l->node);  /* only in a GC cycle, a live parent keeps us alive */
     }
     detach_children(rt, l);
     unbind(rt, l);
+    tjs_nat_untrack(l->node);
     YGNodeFree(l->node);
     l->node = NULL;
 }
@@ -538,6 +516,7 @@ static JSValue layout_ctor(JSContext *ctx, JSValueConst new_target, int argc, JS
         return JS_EXCEPTION;
     }
     l->node = YGNodeNew();
+    tjs_nat_track(TJS_NAT_LAYOUT, l->node);
     l->self = obj;
     l->paint = JS_UNDEFINED;
     YGNodeSetContext(l->node, l);
@@ -570,7 +549,6 @@ static JSValue layout_set_paint(JSContext *ctx, JSValueConst this_val, JSValueCo
     return bind(ctx, l, v) ? JS_EXCEPTION : JS_UNDEFINED;
 }
 
-/* is `anc` this node or one of its ancestors? */
 static bool is_ancestor(YGNodeRef anc, YGNodeRef n)
 {
     for (; n; n = YGNodeGetOwner(n)) {
@@ -601,7 +579,7 @@ static JSValue layout_add(JSContext *ctx, JSValueConst this_val, int argc, JSVal
         for (at = 0; at < n && YGNodeGetChild(l->node, at) != b->node; at++) {
         }
     }
-    /* each of these would be a Yoga abort */
+    /* all of these abort inside Yoga */
     if (YGNodeGetOwner(c->node)) {
         return JS_ThrowRangeError(ctx, "add: that layout already has a parent, remove it first");
     }
@@ -643,7 +621,6 @@ static JSValue layout_count(JSContext *ctx, JSValueConst this_val)
     return JS_NewUint32(ctx, (uint32_t)YGNodeGetChildCount(l->node));
 }
 
-/* move bound paints to where Yoga put their nodes, touching only what changed */
 static void apply(tjs_layout_t *l)
 {
     YGNodeRef n = l->node;
@@ -679,7 +656,7 @@ static void apply(tjs_layout_t *l)
     }
 }
 
-/* calculate(width?, height?): defaults to the root's own style size */
+/* calculate(width?, height?), default: the root's own style size */
 static JSValue layout_calculate(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
     LAYOUT();
@@ -712,7 +689,7 @@ static JSValue layout_dirty(JSContext *ctx, JSValueConst this_val)
     return JS_NewBool(ctx, YGNodeIsDirty(l->node));
 }
 
-/* only measured (Text) nodes go stale behind Yoga's back; others are a no-op */
+/* Yoga aborts on markDirty() of an unmeasured node; those never need it anyway */
 static JSValue layout_mark_dirty(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
     LAYOUT();

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "tvg_js_priv.h"
 
@@ -236,7 +237,7 @@ JSValue tjs_this(JSContext *ctx, JSValueConst this_val)
     return JS_DupValue(ctx, this_val);
 }
 
-/* ---- enums, same names and values as webcanvas' constants.ts ---- */
+/* same names and values as webcanvas' constants.ts */
 
 #define E(n, v) JS_PROP_INT32_DEF(n, v, JS_PROP_ENUMERABLE)
 
@@ -290,7 +291,6 @@ static const struct { const char *name; const JSCFunctionListEntry *list; int n;
     ENUM("FilterMethod", filter_method), ENUM("EngineOption", engine_option),
 };
 
-/* ---- init() / term() ---- */
 
 /*
  * webcanvas loads the wasm here. We've nothing to load: the host already
@@ -326,6 +326,80 @@ static JSValue js_init(JSContext *ctx, JSValueConst this_val, int argc, JSValueC
 static JSValue js_term(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
     return JS_UNDEFINED;
+}
+
+
+typedef struct tjs_nat {
+    struct tjs_nat *next;
+    void *ptr;
+    int kind;
+} tjs_nat_t;
+
+static tjs_nat_t *nat_head;
+static size_t nat_count;
+
+/* plain malloc, not the JS heap: this has to survive the runtime being dropped */
+void tjs_nat_track(int kind, void *ptr)
+{
+    if (!ptr) {
+        return;
+    }
+    tjs_nat_t *n = malloc(sizeof(*n));
+    if (!n) {
+        return;     /* worst case abandon() leaks this one */
+    }
+    n->ptr = ptr;
+    n->kind = kind;
+    n->next = nat_head;
+    nat_head = n;
+    nat_count++;
+}
+
+void tjs_nat_untrack(void *ptr)
+{
+    for (tjs_nat_t **pp = &nat_head; *pp; pp = &(*pp)->next) {
+        if ((*pp)->ptr == ptr) {
+            tjs_nat_t *n = *pp;
+            *pp = n->next;
+            free(n);
+            nat_count--;
+            return;
+        }
+    }
+}
+
+size_t tvg_js_live_objects(void)
+{
+    return nat_count;
+}
+
+void tvg_js_abandon(void)
+{
+    /* order matters: drop the wrapper refs on paints first, canvases last, they free whole trees */
+    for (int kind = 0; kind < TJS_NAT_KINDS; kind++) {
+        for (tjs_nat_t **pp = &nat_head; *pp;) {
+            tjs_nat_t *n = *pp;
+            if (n->kind != kind) {
+                pp = &n->next;
+                continue;
+            }
+            switch (kind) {
+            case TJS_NAT_PAINT: tvg_paint_unref(n->ptr, true); break;
+            case TJS_NAT_ACCESSOR: tvg_accessor_del(n->ptr); break;
+            case TJS_NAT_FILL: tvg_gradient_del(n->ptr); break;
+            case TJS_NAT_LAYOUT: tjs_layout_free_native(n->ptr); break;
+            case TJS_NAT_ANIM: tvg_animation_del(n->ptr); break;
+            case TJS_NAT_CANVAS: tvg_canvas_destroy(n->ptr); break;
+            }
+            *pp = n->next;
+            free(n);
+            nat_count--;
+        }
+    }
+    tjs_surfaces_abandon();
+    TAILQ_INIT(&tjs.playing);   /* entries lived in the dropped heap */
+    tjs.ctx = NULL;
+    tjs.anchor = JS_UNDEFINED;
 }
 
 static void state_finalizer(JSRuntime *rt, JSValueConst val)

@@ -55,6 +55,7 @@ static void fill_finalizer(JSRuntime *rt, JSValueConst val)
     JSClassID cid;
     Tvg_Gradient g = JS_GetAnyOpaque(val, &cid);
     if (g) {
+        tjs_nat_untrack(g);
         tvg_gradient_del(g);
     }
 }
@@ -78,6 +79,7 @@ static JSValue fill_ctor(JSContext *ctx, JSValueConst new_target, int argc, JSVa
         return JS_ThrowOutOfMemory(ctx);
     }
     JS_SetOpaque(obj, g);
+    tjs_nat_track(TJS_NAT_FILL, g);
 
     if (magic == TJS_LINEAR) {
         tvg_linear_gradient_set(g, v[0], v[1], v[2], v[3]);
@@ -192,6 +194,7 @@ static JSValue fill_dispose(JSContext *ctx, JSValueConst this_val, int argc, JSV
     JSClassID cid;
     Tvg_Gradient g = JS_GetAnyOpaque(this_val, &cid);
     if (fill_cls(cid) && g) {
+        tjs_nat_untrack(g);
         tvg_gradient_del(g);
         JS_SetOpaque(this_val, NULL);
     }

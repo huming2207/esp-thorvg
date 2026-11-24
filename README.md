@@ -55,7 +55,7 @@ import { init } from 'thorvg';
 const TVG = await init();
 const canvas = new TVG.Canvas('#lcd');      // or new TVG.Canvas(uint32Array, { width, height })
 canvas.add(new TVG.Shape().appendRect(0, 0, 100, 100, { rx: 10 }).fill(255, 0, 0));
-canvas.render();                            // draws, then calls present() with the dirty regions
+canvas.render();                            // draws; returns the dirty regions, also given to present()
 ```
 
 Differences from webcanvas:
@@ -67,6 +67,10 @@ Differences from webcanvas:
   `EngineOption.SmartRender | EngineOption.Aliased` unless JS passes
   `engineOption`. Use it for palette displays (e-paper), where dithering
   anti-aliased edges leaves a comb of teeth along them.
+- `render()` returns what it changed as `[{ x, y, width, height }]` (empty when
+  nothing did; the whole canvas on a first draw, without SmartRender, or past 16
+  regions) instead of the canvas, and hands the same regions to the surface's
+  `present()`. It doesn't chain.
 - `render()` only clears the whole target on its first draw. With the default
   engine option ThorVG then redraws just the dirty regions. Clearing every
   frame, as webcanvas does, forces a full redraw (10x slower here).

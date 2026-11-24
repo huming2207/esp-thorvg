@@ -31,7 +31,7 @@ function time(name, fn) {
 const TVG = await init({ renderer: 'gl' }); // renderer is ignored, it's always sw
 check('init returns the namespace', TVG.Shape === Shape && TVG.version.length > 0, TVG.version);
 
-// --- offscreen: render into a JS buffer and look at pixels ---
+// offscreen: render into a JS buffer and look at pixels
 {
     const px = new Uint32Array(16 * 16);
     const c = new TVG.Canvas(px, { width: 16, height: 16 }); // ABGR8888 by default
@@ -60,7 +60,7 @@ check('init returns the namespace', TVG.Shape === Shape && TVG.version.length > 
     throws('destroyed canvas', () => c.render(), TypeError);
 }
 
-// --- ownership and errors ---
+// ownership and errors
 {
     const s = new TVG.Shape().appendCircle(10, 10, 5);
     s.dispose();
@@ -96,7 +96,7 @@ check('init returns the namespace', TVG.Shape === Shape && TVG.version.length > 
     check('subclassing', st instanceof Star && st instanceof TVG.Paint && typeof st.moveTo === 'function');
 }
 
-// --- shapes, paths, bounds ---
+// shapes, paths, bounds
 {
     const s = new TVG.Shape();
     const P = TVG.PathCommand;
@@ -117,7 +117,7 @@ check('init returns the namespace', TVG.Shape === Shape && TVG.version.length > 
     check('duplicate', d instanceof TVG.Shape && d !== s && d.path().points.length === 5);
 }
 
-// --- text ---
+// text
 {
     TVG.Font.load('PublicSans', asset('font'), { type: 'ttf' });
     const t = new TVG.Text().font('PublicSans').fontSize(40).text('Hello ThorVG');
@@ -130,7 +130,7 @@ check('init returns the namespace', TVG.Shape === Shape && TVG.version.length > 
     throws('Font.load without bytes', () => TVG.Font.load('nope'), TypeError);
 }
 
-// --- pictures and accessor ---
+// pictures and accessor
 const svg = asset('svg');
 {
     const pic = new TVG.Picture();
@@ -147,7 +147,7 @@ const svg = asset('svg');
     check('raw picture', Math.round(r.size().width) === 4);
 }
 
-// --- lottie ---
+// lottie
 {
     const seg = new TVG.LottieAnimation().load(asset('segment'));
     check('markers', seg.markersCnt() === 3 && seg.marker(1).name === 'sectionB', JSON.stringify(seg.marker(1)));
@@ -161,7 +161,7 @@ const svg = asset('svg');
     sl.dispose();
 }
 
-// --- things the second review caught ---
+// things the second review caught
 {
     const s = new TVG.Shape().appendRect(0, 0, 10, 10);
     throws('clip by a non-Shape', () => s.clip(new TVG.Scene()), TypeError);
@@ -234,7 +234,30 @@ const svg = asset('svg');
     sa.dispose();
 }
 
-// --- add(paint, before) ---
+// render() returns the dirty regions
+{
+    const px = new Uint32Array(64 * 64);
+    const c = new TVG.Canvas(px, { width: 64, height: 64, engineOption: TVG.EngineOption.SmartRender });
+    const box = new TVG.Shape().appendRect(0, 0, 8, 8).fill(255, 0, 0).translate(40, 40);
+    c.add(new TVG.Shape().appendRect(0, 0, 4, 4).fill(0, 255, 0)).add(box);
+    const first = c.render();
+    check('first render: whole canvas', first.length === 1 && first[0].x === 0 && first[0].width === 64 && first[0].height === 64, JSON.stringify(first));
+    const idle = c.render();
+    check('nothing changed: no regions', Array.isArray(idle) && idle.length === 0, JSON.stringify(idle));
+    box.fill(0, 0, 255);
+    const changed = c.render();
+    const hit = changed.some((r) => r.x <= 40 && r.y <= 40 && r.x + r.width >= 48 && r.y + r.height >= 48);
+    const small = changed.every((r) => r.width * r.height < 64 * 64);
+    check('one shape changed: its region only', changed.length > 0 && hit && small, JSON.stringify(changed));
+    const plain = new TVG.Canvas(new Uint32Array(16 * 16), { width: 16, height: 16, engineOption: TVG.EngineOption.None });
+    plain.render();
+    const again = plain.render();
+    check('no dirty tracking: always whole canvas', again.length === 1 && again[0].width === 16, JSON.stringify(again));
+    c.destroy();
+    plain.destroy();
+}
+
+// add(paint, before)
 {
     const px = new Uint32Array(4 * 4);
     const c = new TVG.Canvas(px, { width: 4, height: 4 });
@@ -259,7 +282,7 @@ const svg = asset('svg');
     c.destroy();
 }
 
-// --- Layout (Yoga) ---
+// Layout (Yoga)
 {
     const { Layout } = TVG;
     const rect = () => new TVG.Shape().appendRect(0, 0, 10, 10).fill(0, 0, 0);
@@ -374,7 +397,7 @@ const svg = asset('svg');
     throws('use after dispose', () => disposed.style({}), TypeError);
 }
 
-// --- the visible scene on #lcd ---
+// the visible scene on #lcd
 const lcd = new Canvas('#lcd', { engineOption: TVG.EngineOption.SmartRender });
 check('surface canvas', lcd.renderer === 'sw');
 throws('unknown surface', () => new Canvas('#nope'), ReferenceError);

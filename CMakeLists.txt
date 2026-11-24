@@ -64,8 +64,7 @@ if(CONFIG_THORVG_QUICKJS)
 endif()
 
 # Yoga (submodule) builds straight into this component
-# Yoga (C++20, ESP-IDF builds C++ as gnu++2b). Without C++ exceptions a broken Yoga invariant is
-# std::terminate() -> abort(), so the binding checks everything Yoga would assert on before calling it.
+# Yoga needs C++20, IDF's default gnu++2b covers it
 set(priv_incs "")
 if(CONFIG_THORVG_JS_LAYOUT)
     file(GLOB yoga_srcs CONFIGURE_DEPENDS

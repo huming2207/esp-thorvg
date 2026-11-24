@@ -64,7 +64,8 @@ static JSValue adopt(JSContext *ctx, JSValue obj, Tvg_Paint p)
         return JS_EXCEPTION;
     }
     w->p = p;
-    w->text.line_spacing = 1.0f;    /* ThorVG's default */
+    tjs_nat_track(TJS_NAT_PAINT, p);
+    w->text.line_spacing = 1.0f;
     JS_SetOpaque(obj, w);
     return obj;
 }
@@ -153,13 +154,13 @@ static void paint_finalizer(JSRuntime *rt, JSValueConst val)
     if (w) {
         tjs_layout_paint_gone(w);
         if (w->p) {
+            tjs_nat_untrack(w->p);
             tvg_paint_unref(w->p, true);
         }
         js_free_rt(rt, w);
     }
 }
 
-/* ---- Paint ---- */
 
 static JSValue paint_get_id(JSContext *ctx, JSValueConst this_val)
 {
@@ -400,6 +401,7 @@ static JSValue paint_dispose(JSContext *ctx, JSValueConst this_val, int argc, JS
     JSClassID cid;
     tjs_paint_t *w = JS_GetAnyOpaque(this_val, &cid);
     if (paint_cls(cid) >= 0 && w && w->p) {
+        tjs_nat_untrack(w->p);
         tvg_paint_unref(w->p, true);
         w->p = NULL;
     }
@@ -441,7 +443,6 @@ static JSValue paint_ctor(JSContext *ctx, JSValueConst new_target, int argc, JSV
     return adopt(ctx, tjs_new_obj(ctx, new_target, magic), p);
 }
 
-/* ---- Shape ---- */
 
 /* magic: 0 moveTo, 1 lineTo, 2 cubicTo */
 static JSValue shape_path_op(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv, int magic)
@@ -817,9 +818,7 @@ static const JSCFunctionListEntry shape_proto[] = {
     JS_CFUNC_DEF("reset", 0, shape_reset),
 };
 
-/* ---- Scene ---- */
 
-/* add(paint, before?): before must be a child, paint goes in front of it */
 static JSValue scene_add(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
     PAINT(TJS_SCENE);
@@ -931,7 +930,6 @@ static const JSCFunctionListEntry scene_proto[] = {
     JS_CFUNC_MAGIC_DEF("tritone", 10, scene_effect, 6),
 };
 
-/* ---- Picture ---- */
 
 static int bpp(Tvg_Colorspace cs)
 {
@@ -1105,7 +1103,6 @@ static const JSCFunctionListEntry picture_proto[] = {
     JS_CGETSET_DEF("accessible", picture_get_accessible, picture_set_accessible),
 };
 
-/* ---- Text ---- */
 
 /* magic: 0 font, 1 text */
 static JSValue text_str(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv, int magic)
@@ -1146,7 +1143,7 @@ static JSValue text_nums(JSContext *ctx, JSValueConst this_val, int argc, JSValu
     } else if (magic == 3) {
         w->text.line_spacing = v[1];
     }
-    if (magic != 2) {   /* a Layout overrides layout() anyway */
+    if (magic != 2) {   /* Layout overwrites layout() anyway */
         tjs_layout_text_changed(w);
     }
     return tjs_this(ctx, this_val);

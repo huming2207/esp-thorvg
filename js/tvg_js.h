@@ -23,7 +23,8 @@ extern "C" {
 #endif
 
 /*
- * Called on the JS task after Canvas.render() with the regions ThorVG touched.
+ * Called on the JS task after Canvas.render() with the regions ThorVG touched
+ * (same ones render() returns).
  * Not called when nothing changed. Slow displays (e-paper) should hand the
  * buffer to their own task here instead of blocking JS for seconds.
  */
@@ -36,12 +37,8 @@ typedef struct {
     Tvg_Colorspace cs;          /* ABGR8888/ARGB8888(S), GRAYSCALE8 or RGB565 */
     tvg_js_present_t present;   /* optional */
     void *arg;
-    /*
-     * Canvases on this surface default to SMART_RENDER | ALIASED instead of
-     * DEFAULT; a JS engineOption still wins. For palette displays (e-paper):
-     * anti-aliased edges are blends the panel can't show, and dithering them
-     * leaves a comb of teeth along every edge.
-     */
+    /* canvases here default to SMART_RENDER | ALIASED (JS engineOption still wins).
+     * For palette panels: dithered anti-aliased edges come out as combs */
     bool aliased;
 } tvg_js_surface_t;
 
@@ -57,6 +54,17 @@ esp_err_t tvg_js_remove_surface(const char *name);
 
 /* Register the C module, e.g. tvg_js_init_module(ctx, "thorvg") */
 JSModuleDef *tvg_js_init_module(JSContext *ctx, const char *name);
+
+/*
+ * Call after the runtime was dropped without finalizers (qjs_esp_arena_reset()
+ * after a stopped script). Frees every ThorVG/Yoga object JS still held, frees
+ * the surfaces and unbinds the module so the next context can import it.
+ * Never while that runtime is still alive. Fonts stay loaded.
+ */
+void tvg_js_abandon(void);
+
+/* native objects JS still holds: should be 0 after a clean teardown */
+size_t tvg_js_live_objects(void);
 
 #ifdef __cplusplus
 }

@@ -134,6 +134,7 @@ static void anim_finalizer(JSRuntime *rt, JSValueConst val)
     JS_FreeValueRT(rt, a->pic);
     JS_FreeValueRT(rt, a->on_frame);
     if (a->a) {
+        tjs_nat_untrack(a->a);
         tvg_animation_del(a->a);
     }
     js_free_rt(rt, a);
@@ -165,6 +166,7 @@ static JSValue anim_ctor(JSContext *ctx, JSValueConst new_target, int argc, JSVa
     a->loop = true;
     JS_SetOpaque(obj, a);
     a->a = magic == TJS_LOTTIE ? tvg_lottie_animation_new() : tvg_animation_new();
+    tjs_nat_track(TJS_NAT_ANIM, a->a);
     if (!a->a) {
         JS_FreeValue(ctx, obj);
         return JS_ThrowInternalError(ctx, "Failed to create animation (Lottie loader not built?)");
@@ -362,6 +364,7 @@ static JSValue anim_dispose(JSContext *ctx, JSValueConst this_val, int argc, JSV
     JS_FreeValue(ctx, a->on_frame);
     JS_FreeValue(ctx, a->pic); /* the wrapper keeps its own ref on the picture */
     a->on_frame = a->pic = JS_UNDEFINED;
+    tjs_nat_untrack(a->a);
     tvg_animation_del(a->a);
     a->a = NULL;
     return JS_UNDEFINED;
@@ -392,7 +395,6 @@ static const JSCFunctionListEntry anim_proto[] = {
     JS_CGETSET_DEF("isDisposed", anim_disposed, NULL),
 };
 
-/* ---- LottieAnimation ---- */
 
 /* segment(begin, end) or segment(marker | null) */
 static JSValue lottie_segment(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)

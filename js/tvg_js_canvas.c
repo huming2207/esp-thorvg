@@ -12,7 +12,6 @@
 #include "sdkconfig.h"
 #include "tvg_js_priv.h"
 
-/* ---- surfaces ---- */
 
 typedef struct {
     char name[16];
@@ -88,6 +87,15 @@ static int surface_take(const char *name)
     return ret;
 }
 
+void tjs_surfaces_abandon(void)
+{
+    portENTER_CRITICAL(&surf_lock);
+    for (size_t i = 0; i < countof(surfaces); i++) {
+        surfaces[i].users = 0;
+    }
+    portEXIT_CRITICAL(&surf_lock);
+}
+
 static void surface_drop(int i)
 {
     portENTER_CRITICAL(&surf_lock);
@@ -95,7 +103,6 @@ static void surface_drop(int i)
     portEXIT_CRITICAL(&surf_lock);
 }
 
-/* ---- Canvas ---- */
 
 typedef struct {
     Tvg_Canvas c;       /* NULL once destroyed */
@@ -128,6 +135,7 @@ static canvas_t *canvas_get(JSContext *ctx, JSValueConst v)
 static void canvas_release(JSRuntime *rt, canvas_t *c)
 {
     if (c->c) {
+        tjs_nat_untrack(c->c);
         tvg_canvas_destroy(c->c);
         c->c = NULL;
     }
@@ -274,6 +282,7 @@ static JSValue canvas_ctor(JSContext *ctx, JSValueConst new_target, int argc, JS
         c->view_len = len;  /* a view can't hand ThorVG the rest of its buffer */
     }
     c->c = tvg_swcanvas_create(eo);
+    tjs_nat_track(TJS_NAT_CANVAS, c->c);
     if (!c->c) {
         JS_ThrowInternalError(ctx, "Canvas: tvg_swcanvas_create failed, engine not initialised?");
         goto fail;
@@ -291,7 +300,6 @@ fail:
     return JS_EXCEPTION;
 }
 
-/* add(paint, before?): before must already be on the canvas, paint goes in front of it */
 static JSValue canvas_add(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
     CANVAS();
@@ -305,7 +313,7 @@ static JSValue canvas_add(JSContext *ctx, JSValueConst this_val, int argc, JSVal
         if (!b) {
             return JS_EXCEPTION;
         }
-        /* ThorVG leaks a ref on the paint when `at` isn't in the root scene */
+        /* ThorVG leaks a ref on the paint if `at` isn't in the root scene */
         if (!c->root || tvg_paint_get_parent(b->p) != c->root) {
             return JS_ThrowRangeError(ctx, "add: 'before' isn't on this canvas");
         }
@@ -344,7 +352,8 @@ static JSValue canvas_update(JSContext *ctx, JSValueConst this_val, int argc, JS
  * TJS_CHECK. Any failure stops right there: onError may even have destroyed
  * the canvas, so nothing after it touches c.
  */
-static int draw(JSContext *ctx, canvas_t *c)
+/* reg holds TJS_MAX_REGIONS. First draw, no dirty tracking or too many regions: whole canvas */
+static int draw(JSContext *ctx, canvas_t *c, Tvg_Region *reg, uint32_t *n)
 {
     int r = retarget(ctx, c, false);
     if (r) {
@@ -356,28 +365,41 @@ static int draw(JSContext *ctx, canvas_t *c)
      * With partial rendering on it clears the dirty regions itself, so only
      * wipe a target we haven't drawn into yet.
      */
-    TJS_CHECK(ctx, tvg_canvas_draw(c->c, c->fresh || !c->smart), "draw");
+    bool full = c->fresh || !c->smart;
+    *n = 0;
+    TJS_CHECK(ctx, tvg_canvas_draw(c->c, full), "draw");
     c->fresh = false;
 
     /* regions are only readable between draw and sync */
-    Tvg_Region reg[TJS_MAX_REGIONS];
-    uint32_t n = 0;
-    tvg_js_present_t present = c->surf >= 0 ? surfaces[c->surf].s.present : NULL;
-    void *arg = c->surf >= 0 ? surfaces[c->surf].s.arg : NULL;
-    if (present) {
-        n = tvg_canvas_get_dirty_regions_cnt(c->c);
-        if (n > TJS_MAX_REGIONS) {
-            reg[0] = (Tvg_Region){ 0, 0, (int32_t)c->w, (int32_t)c->h };
-            n = 1;
-        } else if (n && tvg_canvas_get_dirty_regions(c->c, reg, n) != TVG_RESULT_SUCCESS) {
-            n = 0;
-        }
+    uint32_t cnt = full ? 0 : tvg_canvas_get_dirty_regions_cnt(c->c);
+    if (full || cnt > TJS_MAX_REGIONS) {
+        reg[0] = (Tvg_Region){ 0, 0, (int32_t)c->w, (int32_t)c->h };
+        cnt = 1;
+    } else if (cnt && tvg_canvas_get_dirty_regions(c->c, reg, cnt) != TVG_RESULT_SUCCESS) {
+        reg[0] = (Tvg_Region){ 0, 0, (int32_t)c->w, (int32_t)c->h };    /* unknown: say everything */
+        cnt = 1;
     }
     TJS_CHECK(ctx, tvg_canvas_sync(c->c), "sync");
-    if (n) {
-        present(arg, reg, n);
+    *n = cnt;
+    tvg_js_present_t present = c->surf >= 0 ? surfaces[c->surf].s.present : NULL;
+    if (present && cnt) {
+        present(surfaces[c->surf].s.arg, reg, cnt);
     }
     return 0;
+}
+
+static JSValue regions_array(JSContext *ctx, const Tvg_Region *reg, uint32_t n)
+{
+    JSValue arr = JS_NewArray(ctx);
+    for (uint32_t i = 0; i < n && !JS_IsException(arr); i++) {
+        JSValue o = JS_NewObject(ctx);
+        JS_SetPropertyStr(ctx, o, "x", JS_NewInt32(ctx, reg[i].xMin));
+        JS_SetPropertyStr(ctx, o, "y", JS_NewInt32(ctx, reg[i].yMin));
+        JS_SetPropertyStr(ctx, o, "width", JS_NewInt32(ctx, reg[i].xMax - reg[i].xMin));
+        JS_SetPropertyStr(ctx, o, "height", JS_NewInt32(ctx, reg[i].yMax - reg[i].yMin));
+        JS_SetPropertyUint32(ctx, arr, i, o);
+    }
+    return arr;
 }
 
 static JSValue canvas_render(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
@@ -389,7 +411,13 @@ static JSValue canvas_render(JSContext *ctx, JSValueConst this_val, int argc, JS
     if (!c->c) {
         return JS_ThrowTypeError(ctx, "Canvas destroyed by an onFrame callback");
     }
-    return TJS_RET(ctx, draw(ctx, c));
+    Tvg_Region reg[TJS_MAX_REGIONS];
+    uint32_t n = 0;
+    int r = draw(ctx, c, reg, &n);
+    if (r < 0) {
+        return JS_EXCEPTION;
+    }
+    return regions_array(ctx, reg, r ? 0 : n);   /* a failure onError handled drew nothing */
 }
 
 /* drop everything and push a blank frame */
@@ -400,7 +428,9 @@ static JSValue canvas_clear(JSContext *ctx, JSValueConst this_val, int argc, JSV
     /* full wipe: ThorVG doesn't damage paints that die with the remove (JS let
      * go of them already), so partial rendering wouldn't clear their pixels */
     c->fresh = true;
-    return TJS_RET(ctx, draw(ctx, c));
+    Tvg_Region reg[TJS_MAX_REGIONS];
+    uint32_t n;
+    return TJS_RET(ctx, draw(ctx, c, reg, &n));
 }
 
 static JSValue canvas_resize(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
@@ -475,7 +505,6 @@ static const JSCFunctionListEntry canvas_proto[] = {
     JS_CGETSET_DEF("dpr", canvas_dpr, NULL),
 };
 
-/* ---- Font (static only) ---- */
 
 /* load(name, bytes, { type }). Copied into ThorVG, so the bytes can go */
 static JSValue font_load(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
@@ -542,7 +571,6 @@ static const JSCFunctionListEntry font_fns[] = {
     JS_CFUNC_DEF("unload", 1, font_unload),
 };
 
-/* ---- Accessor ---- */
 
 /* opaque of Accessor. The walk calls JS, which may dispose() or set() this same
  * accessor while ThorVG is still iterating with it: flags catch both */
@@ -568,6 +596,7 @@ static void accessor_finalizer(JSRuntime *rt, JSValueConst val)
     acc_t *x = JS_GetAnyOpaque(val, &cid);  /* never mid-walk: set() holds this */
     if (x) {
         if (x->a) {
+            tjs_nat_untrack(x->a);
             tvg_accessor_del(x->a);
         }
         js_free_rt(rt, x);
@@ -584,6 +613,7 @@ static JSValue accessor_ctor(JSContext *ctx, JSValueConst new_target, int argc, 
     }
     JS_SetOpaque(obj, x);
     x->a = tvg_accessor_new();
+    tjs_nat_track(TJS_NAT_ACCESSOR, x->a);
     if (!x->a) {
         JS_FreeValue(ctx, obj);
         return JS_ThrowOutOfMemory(ctx);
@@ -647,6 +677,7 @@ static JSValue accessor_set(JSContext *ctx, JSValueConst this_val, int argc, JSV
     Tvg_Result r = tvg_accessor_set(x->a, p->p, walk_cb, &wk);
     x->walking = false;
     if (x->doomed) {
+        tjs_nat_untrack(x->a);
         tvg_accessor_del(x->a);
         x->a = NULL;
         x->doomed = false;
@@ -676,6 +707,7 @@ static JSValue accessor_dispose(JSContext *ctx, JSValueConst this_val, int argc,
         if (x->walking) {
             x->doomed = true;   /* ThorVG is iterating with it right now */
         } else {
+            tjs_nat_untrack(x->a);
             tvg_accessor_del(x->a);
             x->a = NULL;
         }
