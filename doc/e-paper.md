@@ -37,10 +37,18 @@ if (regions.length) await refreshPanel();   // whatever your firmware gives you
 When you do push a frame, dither the whole thing, not just the regions. Error diffusion spreads
 across region borders, and dithering only parts leaves visible seams.
 
-## No scene effects on RGB565
+## Signage: draw it in an SVG, change it from JS
 
-Shadows and blur crash on an RGB565 target (see [paints.md](paints.md#scene)), and they're slow
-anyway. A drop shadow dithered to 6 colours looks like noise. Skip them.
+For a screen that's a fixed design with a few changing bits (announcements, dates, prices), don't
+build the UI in code. Draw it in Inkscape or Figma, give the changing elements ids, load it as one
+`Picture`, and swap texts by name. Only what changed gets redrawn. How, and what the SVG needs:
+[paints.md](paints.md#editing-an-svg-templates).
+
+## Skip scene effects
+
+They work on RGB565, but a drop shadow on a 1024x600 panel wants 12 MB of PSRAM, and running out
+reboots the chip (see [paints.md](paints.md#scene)). Even when they fit, a shadow or blur dithered
+down to 6 colours just looks like noise.
 
 ## Animation
 

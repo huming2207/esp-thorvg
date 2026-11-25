@@ -387,7 +387,6 @@ void tvg_js_abandon(void)
             case TJS_NAT_PAINT: tvg_paint_unref(n->ptr, true); break;
             case TJS_NAT_ACCESSOR: tvg_accessor_del(n->ptr); break;
             case TJS_NAT_FILL: tvg_gradient_del(n->ptr); break;
-            case TJS_NAT_LAYOUT: tjs_layout_free_native(n->ptr); break;
             case TJS_NAT_ANIM: tvg_animation_del(n->ptr); break;
             case TJS_NAT_CANVAS: tvg_canvas_destroy(n->ptr); break;
             }
@@ -423,7 +422,7 @@ static const char error_src[] =
 static const char *const exports[] = {
     "Paint", "Canvas", "Shape", "Scene", "Picture", "Text", "Animation", "LottieAnimation",
     "LinearGradient", "RadialGradient", "ConicGradient", "Font", "Accessor",
-    "constants", "ThorVGResultCode", "ThorVGError", "Layout",
+    "constants", "ThorVGResultCode", "ThorVGError",
 };
 
 static int bind_classes(JSContext *ctx)
@@ -465,7 +464,7 @@ static int module_init(JSContext *ctx, JSModuleDef *m)
     JS_SetPropertyStr(ctx, ns, "ThorVGError", err);
 
     if (tjs_init_paints(ctx, ns) || tjs_init_fills(ctx, ns) || tjs_init_anims(ctx, ns) ||
-        tjs_init_canvas(ctx, ns) || tjs_init_layout(ctx, ns)) {
+        tjs_init_canvas(ctx, ns)) {
         goto fail;
     }
 

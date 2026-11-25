@@ -48,7 +48,4 @@ canvas.add(t);
 The text box starts at the paint's position (top-left, not the baseline). One line is
 `advance - linegap` tall, n lines are `advance * n - linegap`.
 
-If the text is bound to a [Layout](layout.md) node, don't call `layout()` on it yourself: the node
-sets the box. `align()` and `wrap()` still work inside it.
-
 On e-paper, read [e-paper.md](e-paper.md) before picking text colours.

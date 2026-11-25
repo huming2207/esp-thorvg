@@ -1,9 +1,9 @@
 # ThorVG component
 
-ESP-IDF component tracking the [ThorVG ESP fork](https://github.com/huming2207/thorvg/tree/jmh/esp)
-`jmh/esp`, pinned to `5155c4e5e7a8ee23e738cd29fdb22640357ac794` (version 1.2.0).
-Based on upstream `main` at `04eb68aa4c0e4f6d449bdf027983a664d93aadef`,
-with custom allocator callbacks and class-scoped allocation.
+ESP-IDF component tracking the [ThorVG ESP fork](https://github.com/huming2207/thorvg/tree/jmh/main)
+`jmh/main` (version 1.2.0), rebased on upstream `main` at `11bdd483`. On top of upstream: custom
+allocator callbacks, class-scoped allocation, Grayscale8/RGB565 targets, PIE SIMD, editable SVG
+pictures and exact name lookup (`Picture::find()`).
 This is not the [official Espressif port](https://github.com/espressif/idf-extra-components/tree/master/thorvg).
 Do not use for production just yet.
 
@@ -12,7 +12,7 @@ git submodule update --init --recursive
 ```
 
 Optionally comes with a QuickJS binding (`CONFIG_THORVG_QUICKJS`) shaped after
-[@thorvg/webcanvas](https://github.com/thorvg/thorvg.web), plus flexbox layout through Yoga:
+[@thorvg/webcanvas](https://github.com/thorvg/thorvg.web):
 
 ```js
 import { init } from 'thorvg';

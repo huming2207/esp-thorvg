@@ -16,7 +16,7 @@ canvas.add(new TVG.Shape().appendRect(10, 10, 100, 50, { rx: 8 }).fill(255, 0, 0
 | `translate(x, y)` | Move. Replaces the previous translation, it doesn't add up. |
 | `rotate(deg)` | Rotate around the origin. |
 | `scale(s)` | Uniform scale. |
-| `transform({ e11, e12, e13, e21, e22, e23, e31, e32, e33 })` | Full 3x3 matrix, missing entries = identity. |
+| `transform({ e11, e12, e13, e21, e22, e23, e31, e32, e33 })` | Full 3x3 matrix, missing entries = identity. After this, `translate`/`rotate`/`scale` throw `InsufficientCondition` (paints out of an SVG already have one). |
 | `opacity(0..255)` / `opacity()` | Set / get. |
 | `visible(bool)` / `visible()` | Set / get. Invisible paints cost nothing to render. |
 | `blend(TVG.BlendMethod.X)` | `Normal`, `Multiply`, `Screen`, ... |
@@ -72,10 +72,24 @@ card.translate(40, 40);
   `tint(blackR, blackG, blackB, whiteR, whiteG, whiteB, intensity)`,
   `tritone(shadow rgb, midtone rgb, highlight rgb, blend)`, `resetEffects()`.
 
-**Effects crash on an RGB565 target**, because ThorVG's effect code assumes 32-bit pixels. They're
-fine on ABGR8888/ARGB8888. They're also expensive: each one allocates `max(w, h)^2 * 4` bytes of
-scratch (2.5 MB at 800x480) and ThorVG doesn't check whether that allocation worked. On an
-embedded screen, skip them.
+**Effects eat memory, and running out crashes the chip.** They work on every target, RGB565 and
+Grayscale8 included (those go through a 32-bit layer). But every buffer is a square of
+`max(w, h)^2 * 4` bytes, so the blur can flip the image. At 1024x600 that's 4 MB each:
+
+| Effect | Scratch at 1024x600 |
+|---|---|
+| `fillEffect`, `tint`, `tritone` | 4 MB |
+| `gaussianBlur`, `motionBlur` | 8 MB |
+| `dropShadow` | 12 MB |
+
+ThorVG keeps those buffers until the canvas is destroyed, and it doesn't check whether the
+allocation worked: when it fails, it draws through a NULL pointer and the chip reboots. Masks and
+translucent scenes do the same with smaller (screen-sized) buffers. On an embedded screen, skip
+effects unless you've checked the PSRAM budget.
+
+Effects on a scene with `opacity()` below 255 come out slightly different on RGB565 and Grayscale8
+than on 32-bit targets (up to ~30/255 on a drop shadow). That's ThorVG's direct and layered effect
+paths disagreeing, not the colour format.
 
 Keep a JS reference to scenes you still use. Dropping the last reference to a `Scene` wrapper frees
 it and detaches its children, even if it's still on a canvas through its parent.
@@ -98,9 +112,56 @@ pic.size(200, 200 * height / width).translate(10, 10);
 - `size(w, h)` / `size()`: scale to a size / get the current size.
 - `origin(x, y)`: the point that `translate()` moves (0..1, 0.5 = centre).
 - `filter(TVG.FilterMethod.Bilinear | Nearest)`: scaling filter for bitmaps.
-- `paint(id)`: a paint inside the picture by id (SVG `id`s), or `null`.
-- `accessible = true` before `load()` makes ThorVG keep an id map, so `paint(id)` and the
-  `Accessor` name lookups are fast.
+- `paint('name')`: a paint inside the picture by its SVG `id`, or `null`. Compares the name
+  itself, see below.
+- `paint(number)`: by numeric id, i.e. `Accessor.id('name')`. That's a hash, so it can collide.
+- `accessible`: **on by default** here (off in webcanvas). ThorVG keeps an id-to-name table for
+  SVGs, which makes `paint('name')` exact and fast. Set it to `false` before `load()` to skip the
+  table; then `paint('name')` only compares hashes.
+
+## Editing an SVG (templates)
+
+Paints you get from `paint()` are live. Change them after the picture is on screen and `render()`
+redraws just those:
+
+```js
+const pic = new TVG.Picture().load(svgBytes, { type: 'svg' });
+canvas.add(pic);
+pic.paint('title').text('消防演习通知');
+pic.paint('alert').visible(false);
+if (canvas.render().length) await refresh();
+```
+
+Why names and not numbers: ThorVG stores element ids as 32-bit djb2 hashes, and those collide
+(`'Ab'` and `'BA'` hash the same). `paint('name')` compares the actual names, `paint(number)`
+can hand you the wrong element without any error.
+
+What the SVG needs:
+
+- **Placeholder text.** An empty `<text id="x"/>` makes no paint, so there's nothing to find.
+- **No `<tspan>`** in text you want to change. It turns the element into a `Scene`, not a `Text`.
+- **`font-family` names a loaded font.** Otherwise ThorVG silently picks whatever font it has.
+- **No text boxes.** SVG 1.1 text is just a point. Inkscape's flowed text and Figma's text boxes
+  don't load. For wrapping, draw a `<rect id="body-box" fill="none">` where the text goes and
+  wrap into it:
+
+  ```js
+  const b = pic.paint('body-box').bounds();
+  pic.paint('body')
+      .transform({ e13: b.x, e23: b.y })      // translate() throws on SVG paints, see below
+      .layout(b.width, b.height)
+      .wrap(TVG.TextWrapMode.Word)
+      .text(longText);
+  ```
+
+Things that bite:
+
+- `translate()`, `rotate()` and `scale()` throw `InsufficientCondition` on paints that came out
+  of an SVG: they already have a full matrix. Use `transform({...})`, which replaces it.
+- Wrapping knows nothing about CJK line-break rules, so a line can start with `，`.
+- Every `paint()` call makes a new JS wrapper: `pic.paint('a') !== pic.paint('a')`. Keep the one
+  you got.
+- `Accessor.set()` on the picture walks the same paints, if you'd rather find things by a pattern.
 
 ## Accessor: walk a tree
 

@@ -57,7 +57,7 @@ JSModuleDef *tvg_js_init_module(JSContext *ctx, const char *name);
 
 /*
  * Call after the runtime was dropped without finalizers (qjs_esp_arena_reset()
- * after a stopped script). Frees every ThorVG/Yoga object JS still held, frees
+ * after a stopped script). Frees every ThorVG object JS still held, frees
  * the surfaces and unbinds the module so the next context can import it.
  * Never while that runtime is still alive. Fonts stay loaded.
  */

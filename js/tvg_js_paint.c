@@ -65,7 +65,6 @@ static JSValue adopt(JSContext *ctx, JSValue obj, Tvg_Paint p)
     }
     w->p = p;
     tjs_nat_track(TJS_NAT_PAINT, p);
-    w->text.line_spacing = 1.0f;
     JS_SetOpaque(obj, w);
     return obj;
 }
@@ -152,7 +151,6 @@ static void paint_finalizer(JSRuntime *rt, JSValueConst val)
     JSClassID cid;
     tjs_paint_t *w = JS_GetAnyOpaque(val, &cid);
     if (w) {
-        tjs_layout_paint_gone(w);
         if (w->p) {
             tjs_nat_untrack(w->p);
             tvg_paint_unref(w->p, true);
@@ -440,7 +438,13 @@ static JSValue paint_ctor(JSContext *ctx, JSValueConst new_target, int argc, JSV
                 : magic == TJS_SCENE ? tvg_scene_new()
                 : magic == TJS_PICTURE ? tvg_picture_new()
                 : tvg_text_new();
-    return adopt(ctx, tjs_new_obj(ctx, new_target, magic), p);
+    /* accessible by default (webcanvas: off): SVG ids are kept, so paint('name') matches exactly */
+    bool accessible = magic == TJS_PICTURE && p && tvg_picture_set_accessible(p, true) == TVG_RESULT_SUCCESS;
+    JSValue obj = adopt(ctx, tjs_new_obj(ctx, new_target, magic), p);
+    if (accessible && !JS_IsException(obj)) {
+        ((tjs_paint_t *)JS_GetOpaque(obj, tjs.ids[TJS_PICTURE]))->accessible = true;
+    }
+    return obj;
 }
 
 
@@ -1055,11 +1059,23 @@ static JSValue picture_origin(JSContext *ctx, JSValueConst this_val, int argc, J
 static JSValue picture_paint(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
     PAINT(TJS_PICTURE);
-    uint32_t id;
-    if (to_id(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, &id)) {
-        return JS_EXCEPTION;
+    JSValueConst key = argc > 0 ? argv[0] : JS_UNDEFINED;
+    Tvg_Paint p;
+    if (JS_IsString(key)) {
+        /* exact name match on accessible SVGs: the numeric ids are hashes and can collide */
+        const char *name = JS_ToCString(ctx, key);
+        if (!name) {
+            return JS_EXCEPTION;
+        }
+        p = tvg_picture_find_paint(w->p, name);
+        JS_FreeCString(ctx, name);
+    } else {
+        uint32_t id;
+        if (to_id(ctx, key, &id)) {
+            return JS_EXCEPTION;
+        }
+        p = tvg_picture_get_paint(w->p, id);
     }
-    Tvg_Paint p = tvg_picture_get_paint(w->p, id);
     return p ? tjs_wrap_paint(ctx, p) : JS_NULL;
 }
 
@@ -1115,7 +1131,6 @@ static JSValue text_str(JSContext *ctx, JSValueConst this_val, int argc, JSValue
     Tvg_Result r = magic ? tvg_text_set_text(w->p, s) : tvg_text_set_font(w->p, s);
     JS_FreeCString(ctx, s);
     TJS_TRY(ctx, r, magic ? "text" : "font");
-    tjs_layout_text_changed(w);
     return tjs_this(ctx, this_val);
 }
 
@@ -1137,15 +1152,6 @@ static JSValue text_nums(JSContext *ctx, JSValueConst this_val, int argc, JSValu
     default: r = tvg_text_set_italic(w->p, v[0]); break;
     }
     TJS_TRY(ctx, r, ops[magic]);
-    if (magic == 1) {
-        w->text.align[0] = v[0];
-        w->text.align[1] = v[1];
-    } else if (magic == 3) {
-        w->text.line_spacing = v[1];
-    }
-    if (magic != 2) {   /* Layout overwrites layout() anyway */
-        tjs_layout_text_changed(w);
-    }
     return tjs_this(ctx, this_val);
 }
 
@@ -1183,8 +1189,6 @@ static JSValue text_wrap(JSContext *ctx, JSValueConst this_val, int argc, JSValu
         return JS_EXCEPTION;
     }
     TJS_TRY(ctx, tvg_text_wrap_mode(w->p, m), "wrap");
-    w->text.wrap = m != TVG_TEXT_WRAP_NONE;
-    tjs_layout_text_changed(w);
     return tjs_this(ctx, this_val);
 }
 

@@ -38,11 +38,10 @@ Those throw even with an `onError` handler.
 - `Picture.load()`, `Font.load()` and raw image data are copied. Your buffers can go right away.
 - A `Canvas` on a surface keeps that surface busy until the canvas is destroyed or GC'd.
 - Playing animations pin themselves until paused or stopped.
-- `Layout` boxes: parents hold their children, a box holds its paint. See [layout.md](layout.md).
 
 Memory: the JS objects live in the QuickJS heap. ThorVG's own objects (paths, render data, decoded
 images, fonts) go wherever the host told ThorVG to allocate (see the allocator section in
-[building.md](building.md)). Yoga nodes use the normal heap.
+[building.md](building.md)).
 
 ## Leak check
 
@@ -59,9 +58,9 @@ leaks and the next script can't import the module. See
 
 ## Things that still crash
 
-The binding guards everything it knows about, but a few things are ThorVG/Yoga's and can still
+The binding guards everything it knows about, but a few things are ThorVG's and can still
 take the chip down:
 
-- scene effects on an RGB565 target ([paints.md](paints.md#scene))
-- running out of memory inside Yoga (`abort()`)
-- ThorVG not checking the big scratch allocation of scene effects
+- **ThorVG running out of memory for a layer.** Scene effects, masks and translucent scenes draw
+  into scratch buffers (4 MB each for an effect at 1024x600). ThorVG doesn't check those
+  allocations, so a failed one means drawing through NULL. See [paints.md](paints.md#scene).

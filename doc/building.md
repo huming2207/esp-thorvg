@@ -2,7 +2,7 @@
 
 ## Get the sources
 
-Two submodules: `thorvg/` (our ThorVG fork) and `yoga/` (layout, only used by the JS binding).
+One submodule: `thorvg/`, our ThorVG fork.
 
 ```sh
 git submodule update --init --recursive
@@ -23,7 +23,6 @@ All under `menuconfig → ThorVG Support Options`.
 | `THORVG_*_LOADER_SUPPORT` | svg, lottie, ttf on; png, jpg, webp off | Which file formats `Picture`/`Font` can load. Every loader costs flash. |
 | `THORVG_QUICKJS` | n | The JS binding in `js/`. |
 | `THORVG_QUICKJS_COMPONENT` | `esp-quickjs-ng` | Name of the component that provides `quickjs.h`. |
-| `THORVG_JS_LAYOUT` | y | `Layout` (Yoga). About 33 KB of flash. |
 | `THORVG_JS_MAX_SURFACES` | 2 | How many framebuffers the host can register for JS at once. |
 
 ## Threads: just turn them off

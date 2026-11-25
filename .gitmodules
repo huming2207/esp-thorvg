@@ -2,6 +2,3 @@
 	path = thorvg
 	url = https://github.com/huming2207/thorvg.git
 	branch = jmh/main
-[submodule "yoga"]
-	path = yoga
-	url = https://github.com/facebook/yoga.git

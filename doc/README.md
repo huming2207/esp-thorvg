@@ -11,12 +11,11 @@ Read in this order if you're new:
 3. [canvas.md](canvas.md): `Canvas`, `render()`, dirty regions
 4. [paints.md](paints.md): `Shape`, `Scene`, `Picture`, transforms, clip/mask, `Accessor`
 5. [text.md](text.md): fonts and `Text`
-6. [layout.md](layout.md): `Layout`, flexbox via Yoga
-7. [gradients.md](gradients.md): `LinearGradient` and friends
-8. [animation.md](animation.md): `Animation`, `LottieAnimation`
-9. [errors-and-memory.md](errors-and-memory.md): errors, who owns what, GC, killed scripts
-10. [e-paper.md](e-paper.md): using this on a palette panel without it looking awful
-11. [webcanvas-differences.md](webcanvas-differences.md): what's not the same as the browser version
+6. [gradients.md](gradients.md): `LinearGradient` and friends
+7. [animation.md](animation.md): `Animation`, `LottieAnimation`
+8. [errors-and-memory.md](errors-and-memory.md): errors, who owns what, GC, killed scripts
+9. [e-paper.md](e-paper.md): using this on a palette panel without it looking awful, SVG templates
+10. [webcanvas-differences.md](webcanvas-differences.md): what's not the same as the browser version
 
 `examples/quickjs` pokes the entire JS API and runs in esp-emu. When the docs and that file
 disagree, the example wins: it's what actually gets tested.

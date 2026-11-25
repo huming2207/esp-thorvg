@@ -84,12 +84,12 @@ trying to import it gets an error until the first one is gone.
 
 ## Killed scripts: `tvg_js_abandon()`
 
-Normal teardown (`JS_FreeContext` + `JS_FreeRuntime`) runs every finalizer, and every ThorVG/Yoga
+Normal teardown (`JS_FreeContext` + `JS_FreeRuntime`) runs every finalizer, and every ThorVG
 object gets freed. Check with `tvg_js_live_objects()`: it should be 0 afterwards.
 
 If you run untrusted or buggy scripts with esp-quickjs-ng's arena and limits, a stopped script's
 runtime can't be freed normally: you drop the whole arena with `qjs_esp_arena_reset()`, and
-no finalizers run. The ThorVG paints, canvases and Yoga nodes the script made live outside that
+no finalizers run. The ThorVG paints and canvases the script made live outside that
 arena, so they'd leak, and the binding would still think it's bound to a dead context. Call
 `tvg_js_abandon()` after the reset:
 

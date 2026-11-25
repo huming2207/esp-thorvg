@@ -22,11 +22,12 @@ wasm and no `<canvas>`. If you port code from the web version, this is what bite
 - **Dropping the last JS reference to a `Scene` frees it** and detaches its children.
 - **`Font.load()` needs the bytes.** There's no font provider and no `FontsourceProvider`.
 - **One JS context** can use the module at a time.
+- **`Picture.accessible` is on by default**, and **`Picture.paint('name')` compares names**, not
+  just their hashes. See [paints.md](paints.md#editing-an-svg-templates).
 
 ## Extra
 
 - `Scene.add(paint, before)` and `Canvas.add(paint, before)`: insert in front of a child.
-- `Layout`: flexbox via Yoga. See [layout.md](layout.md).
 - `ColorSpace.RGB565`, `XRGB8888`, `XBGR8888`
 - `EngineOption.Aliased`
 - `Picture.loadFile(path)`, `Font.loadFile(path)`: from the filesystem, skipping the JS heap.
